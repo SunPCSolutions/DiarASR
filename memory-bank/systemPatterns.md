@@ -1,18 +1,30 @@
-# System Patterns: NVIDIA ASR Diarization Architecture
+# System Patterns: HYBRID ASR Diarization Architecture
 
 ## Core Architecture Patterns
 
-### Enhanced Modular Pipeline Pattern
+### Hybrid Modular Pipeline Pattern (RECOMMENDED)
 ```
 FastAPI Service (API Layer)
-├── NvidiaDiarization (Speaker Segmentation + Count Control)
-├── NvidiaASR (Speech-to-Text with Silero VAD)
+├── HybridDiarization (Pyannote 3.1 + Speaker Control)
+├── NvidiaASR (Parakeet TDT with Silero VAD)
 ├── VRAMManager (Automatic Model Unloading)
 └── SecureTempManager (File Security)
 ```
 
-**Benefits**: Separation of concerns, resource management, testability
-**Implementation**: Each module has single responsibility with resource cleanup
+**Benefits**: Enterprise-grade quality, superior diarization accuracy, production-ready
+**Implementation**: Pyannote diarization + NVIDIA ASR with seamless integration
+
+### Legacy NVIDIA Pipeline Pattern (Available)
+```
+FastAPI Service (API Layer)
+├── NvidiaDiarization (Sortformer + Speaker Control)
+├── NvidiaASR (Parakeet CTC with Silero VAD)
+├── VRAMManager (Automatic Model Unloading)
+└── SecureTempManager (File Security)
+```
+
+**Benefits**: NVIDIA ecosystem consistency, functional baseline
+**Implementation**: Pure NVIDIA implementation with VRAM management
 
 ### Secure Resource Management Pattern
 ```python
@@ -40,7 +52,15 @@ class GlobalConfig:
 
 ## Data Flow Patterns
 
-### Enhanced Sequential Processing Pipeline
+### Hybrid Sequential Processing Pipeline (PRIMARY)
+```
+Audio File → Validation → Audio Preprocessing (16kHz) → Pyannote Diarization → Speaker Filtering → Segment Extraction → Parakeet TDT ASR → Speaker Assignment → Results → VRAM Cleanup
+```
+
+**Rationale**: High-quality diarization → precise segmentation → advanced ASR → perfect speaker attribution
+**Optimization**: GPU acceleration, batch processing, automatic memory management
+
+### Legacy NVIDIA Processing Pipeline (FALLBACK)
 ```
 Audio File → Validation → Diarization → Speaker Filtering → Segment Extraction → ASR with VAD → Results → Optional VRAM Cleanup
 ```
@@ -58,14 +78,44 @@ File Input → Memory Buffer → Processing → Memory Output → Secure Cleanup
 
 ## Component Interaction Patterns
 
+### Backend Selection Pattern
+```python
+# Dynamic backend selection based on configuration
+if config.diarization.backend == "hybrid":
+    diarization_module = HybridDiarization(config)
+elif config.diarization.backend == "nvidia":
+    diarization_module = NvidiaDiarization(config)
+else:
+    # Auto-selection based on available resources
+    diarization_module = select_optimal_backend(config)
+```
+
+**Benefits**: Quality optimization, fallback compatibility, resource adaptation
+**Implementation**: Configuration-driven backend selection with graceful degradation
+
+### Hybrid Integration Pattern
+```python
+# Pyannote diarization with NVIDIA ASR
+diarization_result = pyannote_diarizer.diarize_audio(audio_path)
+transcription_result = nvidia_asr.transcribe_segments(segments)
+
+# Speaker assignment integration
+final_result = assign_speakers_to_transcript(
+    transcription_result, diarization_result
+)
+```
+
+**Benefits**: Best-of-breed components, superior accuracy, seamless integration
+**Implementation**: Compatible data formats, shared GPU resources, unified API
+
 ### Dependency Injection Pattern
 ```python
 # Modules receive configuration, not create it
 asr_module = NvidiaASR(config.asr_config)
-diarization_module = NvidiaDiarization(config.diarization_config)
+diarization_module = HybridDiarization(config.diarization_config)
 ```
 
-**Benefits**: Testability, configuration flexibility
+**Benefits**: Testability, configuration flexibility, backend abstraction
 **Implementation**: Constructor injection with typed configurations
 
 ### Observer Pattern for Progress Tracking

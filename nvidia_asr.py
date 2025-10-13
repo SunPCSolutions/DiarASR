@@ -459,7 +459,8 @@ class NvidiaASR:
         return results
 
     def cleanup(self):
-        """Clean up resources."""
+        """Aggressively clean up resources and free GPU memory."""
+        # Delete model references
         if self.asr_model is not None:
             del self.asr_model
             self.asr_model = None
@@ -476,8 +477,24 @@ class NvidiaASR:
         if hasattr(self, 'vad_utils'):
             delattr(self, 'vad_utils')
 
+        # Aggressive GPU memory cleanup
         if torch.cuda.is_available():
+            # Multiple empty_cache calls
             torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+
+            # Force garbage collection
+            import gc
+            gc.collect()
+
+            # Try to trigger memory deallocation
+            try:
+                dummy = torch.zeros(1024, device='cuda')
+                del dummy
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+            except:
+                pass
 
         print("NVIDIA ASR cleanup complete.")
 

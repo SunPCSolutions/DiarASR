@@ -15,8 +15,8 @@ class ASRConfig:
     """Configuration for Automatic Speech Recognition parameters."""
 
     # Core ASR parameters
-    batch_size: int = 16  # Batch size for processing audio segments
-    compute_type: str = "fp16"  # Compute precision: "fp16", "fp32", "int8"
+    batch_size: int = 32  # Batch size for processing audio segments
+    compute_type: str = "fp32"  # Compute precision: "fp16", "fp32", "int8"
     language: str = "en"  # Language code for ASR model
 
     # VAD (Voice Activity Detection) parameters
@@ -25,7 +25,7 @@ class ASRConfig:
     min_segment_duration: float = 0.05  # Minimum duration for speech segments (seconds)
 
     # Model parameters
-    asr_model_name: str = "nvidia/parakeet-ctc-1.1b"  # ASR model to use
+    asr_model_name: str = "nvidia/parakeet-tdt-1.1b"  # ASR model to use (faster variant)
     device: str = "auto"  # Device: "auto", "cpu", "cuda"
 
     # Batch processing
@@ -36,12 +36,23 @@ class ASRConfig:
 class DiarizationConfig:
     """Configuration for Speaker Diarization parameters."""
 
-    # Model parameters
-    model_name: str = "nvidia/diar_streaming_sortformer_4spk-v2"
+    # Backend selection
+    backend: str = "hybrid"  # "hybrid" (Pyannote), "nvidia" (Sortformer), "auto"
+
+    # Pyannote settings (for hybrid backend)
+    pyannote_model: str = "pyannote/speaker-diarization-3.1"
+    hf_token: Optional[str] = None
+
+    # NVIDIA settings (for nvidia backend)
+    nvidia_model: str = "nvidia/diar_streaming_sortformer_4spk-v2"
+
+    # Common settings
     device: str = "auto"  # Device: "auto", "cpu", "cuda"
     num_speakers: Optional[int] = None  # Expected number of speakers (1-4)
+    min_speakers: Optional[int] = None  # Minimum speakers (Pyannote)
+    max_speakers: Optional[int] = None  # Maximum speakers (Pyannote)
 
-    # Streaming parameters
+    # Legacy NVIDIA streaming parameters (for nvidia backend)
     chunk_size: int = 6  # Chunk size for streaming processing
     right_context: int = 7  # Right context for streaming
     fifo_size: int = 188  # FIFO buffer size
@@ -119,22 +130,26 @@ class GlobalConfig:
 DEFAULT_CONFIG = GlobalConfig(
     asr=ASRConfig(
         batch_size=32,  # Increased from 16 for better GPU utilization
-        compute_type="fp16",  # As requested
+        compute_type="fp32",  # Changed to fp32 for better accuracy
         language="en",  # As requested
         use_vad=True,
         vad_threshold=0.5,
         min_segment_duration=0.05,
-        asr_model_name="nvidia/parakeet-ctc-1.1b",
+        asr_model_name="nvidia/parakeet-tdt-1.1b",
         device="auto",
         enable_batch_processing=True
     ),
     diarization=DiarizationConfig(
-        model_name="nvidia/diar_streaming_sortformer_4spk-v2",
+        backend="hybrid",  # Use Pyannote by default for better quality
+        pyannote_model="pyannote/speaker-diarization-3.1",
+        hf_token=None,  # Will be set from environment
+        nvidia_model="nvidia/diar_streaming_sortformer_4spk-v2",
         device="auto",
-        chunk_size=6,  # High accuracy setting
-        right_context=7,  # High accuracy setting
-        fifo_size=188,  # High accuracy setting
-        update_period=144,  # High accuracy setting
+        # Legacy NVIDIA parameters (used if backend="nvidia")
+        chunk_size=6,
+        right_context=7,
+        fifo_size=188,
+        update_period=144,
         speaker_cache_size=188
     ),
     streaming=StreamingConfig(

@@ -1,0 +1,1 @@
+{"detail":"Hugging Face token required for Pyannote diarization. Set HF_TOKEN environment variable or pass hf_token parameter."}

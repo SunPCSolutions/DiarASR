@@ -19,6 +19,7 @@ import logging
 
 from nvidia_diarization import NvidiaDiarization
 from nvidia_asr import NvidiaASR
+from hybrid_diarization import HybridDiarization
 from config import get_config
 
 
@@ -26,7 +27,15 @@ from config import get_config
 class PipelineConfig:
     """Configuration for the pipeline orchestrator."""
     # Diarization settings
-    diarization_model: str = get_config().diarization.model_name
+    diarization_backend: str = get_config().diarization.backend
+    diarization_pyannote_model: str = get_config().diarization.pyannote_model
+    diarization_nvidia_model: str = get_config().diarization.nvidia_model
+    diarization_hf_token: Optional[str] = get_config().diarization.hf_token
+    diarization_num_speakers: Optional[int] = get_config().diarization.num_speakers
+    diarization_min_speakers: Optional[int] = get_config().diarization.min_speakers
+    diarization_max_speakers: Optional[int] = get_config().diarization.max_speakers
+
+    # Legacy NVIDIA settings (for backward compatibility)
     diarization_chunk_size: int = get_config().diarization.chunk_size
     diarization_right_context: int = get_config().diarization.right_context
     diarization_fifo_size: int = get_config().diarization.fifo_size
@@ -150,7 +159,7 @@ class PipelineOrchestrator:
         """
         self.config = config or PipelineConfig()
         self.temp_manager = SecureTempManager(self.config.secure_temp_dir)
-        self.diarization_module: Optional[NvidiaDiarization] = None
+        self.diarization_module: Optional[Any] = None  # Can be NvidiaDiarization or HybridDiarization
         self.asr_module: Optional[NvidiaASR] = None
         self.logger = self._setup_logging()
 
@@ -206,16 +215,30 @@ class PipelineOrchestrator:
     def _initialize_modules(self):
         """Initialize diarization and ASR modules."""
         if self.diarization_module is None:
-            self.logger.info("Initializing diarization module...")
-            self.diarization_module = NvidiaDiarization(
-                model_name=self.config.diarization_model,
-                chunk_size=self.config.diarization_chunk_size,
-                right_context=self.config.diarization_right_context,
-                fifo_size=self.config.diarization_fifo_size,
-                update_period=self.config.diarization_update_period,
-                speaker_cache_size=self.config.diarization_speaker_cache_size,
-                device=self.config.device
-            )
+            self.logger.info(f"Initializing diarization module (backend: {self.config.diarization_backend})...")
+
+            if self.config.diarization_backend == "hybrid":
+                # Use Pyannote-based hybrid diarization
+                self.diarization_module = HybridDiarization(
+                    pyannote_model=self.config.diarization_pyannote_model,
+                    hf_token=self.config.diarization_hf_token,
+                    device=self.config.device,
+                    min_speakers=self.config.diarization_min_speakers,
+                    max_speakers=self.config.diarization_max_speakers
+                )
+            elif self.config.diarization_backend == "nvidia":
+                # Use NVIDIA Sortformer diarization
+                self.diarization_module = NvidiaDiarization(
+                    model_name=self.config.diarization_nvidia_model,
+                    chunk_size=self.config.diarization_chunk_size,
+                    right_context=self.config.diarization_right_context,
+                    fifo_size=self.config.diarization_fifo_size,
+                    update_period=self.config.diarization_update_period,
+                    speaker_cache_size=self.config.diarization_speaker_cache_size,
+                    device=self.config.device
+                )
+            else:
+                raise ValueError(f"Unsupported diarization backend: {self.config.diarization_backend}")
 
         if self.asr_module is None:
             self.logger.info("Initializing ASR module...")
@@ -246,7 +269,20 @@ class PipelineOrchestrator:
                 # Step 1: Run diarization
                 self.logger.info("Running speaker diarization...")
                 assert self.diarization_module is not None, "Diarization module not initialized"
-                speaker_segments = self.diarization_module.run_offline_diarization(audio_path)
+
+                if isinstance(self.diarization_module, HybridDiarization):
+                    # Hybrid diarization returns different format
+                    diarization_result = self.diarization_module.diarize_audio(audio_path)
+                    speaker_segments = diarization_result['segments']
+
+                    # Apply speaker filtering if requested
+                    if self.config.diarization_num_speakers:
+                        speaker_segments = self.diarization_module.filter_speakers(
+                            speaker_segments, self.config.diarization_num_speakers
+                        )
+                else:
+                    # NVIDIA diarization
+                    speaker_segments = self.diarization_module.run_offline_diarization(audio_path)
 
                 if not speaker_segments:
                     self.logger.warning("No speaker segments detected")

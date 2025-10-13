@@ -1,14 +1,4 @@
 Looking in indexes: https://pypi.org/simple, https://pypi.ngc.nvidia.com
-Collecting cuda-python
-  Downloading cuda_python-13.0.2-py3-none-any.whl.metadata (4.7 kB)
-Collecting cuda-bindings~=13.0.2 (from cuda-python)
-  Downloading cuda_bindings-13.0.2-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (2.3 kB)
-Collecting cuda-pathfinder~=1.1 (from cuda-python)
-  Downloading cuda_pathfinder-1.3.0-py3-none-any.whl.metadata (3.4 kB)
-Downloading cuda_python-13.0.2-py3-none-any.whl (7.6 kB)
-Downloading cuda_bindings-13.0.2-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (12.0 MB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 12.0/12.0 MB 48.5 MB/s  0:00:00
-Downloading cuda_pathfinder-1.3.0-py3-none-any.whl (27 kB)
-Installing collected packages: cuda-pathfinder, cuda-bindings, cuda-python
-
-Successfully installed cuda-bindings-13.0.2 cuda-pathfinder-1.3.0 cuda-python-13.0.2
+Requirement already satisfied: cuda-python in ./.venv/lib/python3.12/site-packages (13.0.2)
+Requirement already satisfied: cuda-bindings~=13.0.2 in ./.venv/lib/python3.12/site-packages (from cuda-python) (13.0.2)
+Requirement already satisfied: cuda-pathfinder~=1.1 in ./.venv/lib/python3.12/site-packages (from cuda-python) (1.3.1)
