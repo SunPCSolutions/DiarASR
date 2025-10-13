@@ -24,6 +24,8 @@ app = FastAPI()
 def process_audio(
     audio_path: str,
     num_speakers: Optional[int] = None,
+    min_speakers: Optional[int] = None,
+    max_speakers: Optional[int] = None,
     diarization_model: Optional[str] = None,
     asr_model: Optional[str] = None,
     language: Optional[str] = None,
@@ -40,6 +42,8 @@ def process_audio(
     request_data = {
         'audio_path': audio_path,
         'num_speakers': num_speakers,
+        'min_speakers': min_speakers,
+        'max_speakers': max_speakers,
         'diarization_model': diarization_model,
         'asr_model': asr_model,
         'language': language,
@@ -105,6 +109,8 @@ async def transcribe_diarize(
     diarize: bool = Form(True),
     vad: Optional[str] = Form(None),
     num_speakers: Optional[int] = Form(None),
+    min_speakers: Optional[int] = Form(None),
+    max_speakers: Optional[int] = Form(None),
     unload_models_after: Optional[str] = Form(None),
     hf_token: Optional[str] = Form(None),
     output_format: Optional[str] = Form(None),
@@ -134,6 +140,8 @@ async def transcribe_diarize(
         result = process_audio(
             audio_path=temp_path,
             num_speakers=num_speakers,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
             diarization_model=diarization_model,
             asr_model=asr_model,
             language=language,

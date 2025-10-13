@@ -108,8 +108,6 @@ class HybridDiarization:
         try:
             # Preprocess audio to 16kHz mono (required by Pyannote)
             import torchaudio
-            import tempfile
-            import os
 
             # Load and resample audio
             waveform, sample_rate = torchaudio.load(audio_path)
@@ -123,23 +121,14 @@ class HybridDiarization:
             if sample_rate != target_sample_rate:
                 resampler = torchaudio.transforms.Resample(sample_rate, target_sample_rate)
                 waveform = resampler(waveform)
+                sample_rate = target_sample_rate
 
-            # Save preprocessed audio to temporary file
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
-                temp_audio_path = temp_file.name
-                torchaudio.save(temp_audio_path, waveform, target_sample_rate)
-
-            try:
-                # Run diarization with speaker constraints
-                diarization = self.pipeline(
-                    temp_audio_path,
-                    min_speakers=self.min_speakers,
-                    max_speakers=self.max_speakers
-                )
-            finally:
-                # Clean up temporary file
-                if os.path.exists(temp_audio_path):
-                    os.unlink(temp_audio_path)
+            # Use in-memory processing for faster performance
+            diarization = self.pipeline(
+                {"waveform": waveform, "sample_rate": sample_rate},
+                min_speakers=self.min_speakers,
+                max_speakers=self.max_speakers
+            )
 
             # Convert to standard format
             segments = []

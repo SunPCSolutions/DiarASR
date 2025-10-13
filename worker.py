@@ -27,6 +27,44 @@ sys.stdout = null_device
 # Set up logging to stderr only
 logging.basicConfig(level=logging.ERROR, stream=sys.stderr, format='%(levelname)s: %(message)s')
 
+def merge_consecutive_speaker_segments(segments):
+    """
+    Merge consecutive segments from the same speaker to ensure diarization-controlled segmentation.
+
+    Args:
+        segments: List of transcription segments with speaker labels
+
+    Returns:
+        List of merged segments where consecutive segments from same speaker are combined
+    """
+    if not segments:
+        return segments
+
+    # Sort by start time
+    sorted_segments = sorted(segments, key=lambda x: x['start'])
+
+    merged_segments = []
+    current_segment = sorted_segments[0].copy()
+
+    for next_segment in sorted_segments[1:]:
+        # Check if this segment is consecutive from the same speaker
+        if (next_segment['speaker'] == current_segment['speaker'] and
+            abs(next_segment['start'] - current_segment['end']) < 0.5):  # 500ms gap tolerance
+            # Merge segments
+            current_segment['end'] = next_segment['end']
+            current_segment['text'] += ' ' + next_segment['text']
+        else:
+            # Start new segment
+            merged_segments.append(current_segment)
+            current_segment = next_segment.copy()
+
+    # Add the last segment
+    merged_segments.append(current_segment)
+
+    print(f"Merged {len(sorted_segments)} segments into {len(merged_segments)} diarization-controlled segments")
+    return merged_segments
+
+
 def run_inference(request_data):
     """Run inference in isolated subprocess with automatic cleanup"""
 
@@ -48,12 +86,13 @@ def run_inference(request_data):
         # Parse request
         audio_path = request_data['audio_path']
         num_speakers = request_data.get('num_speakers')
+        min_speakers = request_data.get('min_speakers')
+        max_speakers = request_data.get('max_speakers')
         diarization_model = request_data.get('diarization_model')
         asr_model = request_data.get('asr_model')
         language = request_data.get('language')
         diarize = request_data.get('diarize', True)
         vad = request_data.get('vad')
-        segment_resolution = request_data.get('segment_resolution')
         batch_size = request_data.get('batch_size')
         output_format = request_data.get('output_format')
 
@@ -127,43 +166,23 @@ def run_inference(request_data):
         asr_model_instance = asr_models[asr_model]
 
         if diarize:
-            # Choose diarization backend
-            if config.diarization.backend == "hybrid":
-                # Use Pyannote-based hybrid diarization with preloading
-                diarizer_key = f"hybrid_{num_speakers}"
-                if diarizer_key not in diarizer_instances:
-                    diarizer_instances[diarizer_key] = HybridDiarization(
-                        pyannote_model=config.diarization.pyannote_model,
-                        hf_token=config.diarization.hf_token or os.getenv("HF_TOKEN"),
-                        device=config.asr.device,
-                        min_speakers=num_speakers,
-                        max_speakers=num_speakers
-                    )
-                diarizer = diarizer_instances[diarizer_key]
-                diarization_result = diarizer.diarize_audio(converted_path)
-                speaker_segments = diarization_result['segments']
+            # Use Pyannote-based hybrid diarization (only backend supported)
+            diarizer_key = f"hybrid_{min_speakers}_{max_speakers}"
+            if diarizer_key not in diarizer_instances:
+                diarizer_instances[diarizer_key] = HybridDiarization(
+                    pyannote_model=config.diarization.pyannote_model,
+                    hf_token=config.diarization.hf_token or os.getenv("HF_TOKEN"),
+                    device=config.asr.device,
+                    min_speakers=min_speakers,
+                    max_speakers=max_speakers
+                )
+            diarizer = diarizer_instances[diarizer_key]
+            diarization_result = diarizer.diarize_audio(converted_path)
+            speaker_segments = diarization_result['segments']
 
-                # Apply speaker filtering if needed
-                if num_speakers and len(set(s['speaker'] for s in speaker_segments)) > num_speakers:
-                    speaker_segments = diarizer.filter_speakers(speaker_segments, num_speakers)
-
-            else:
-                # Use NVIDIA Sortformer diarization with preloading
-                from nvidia_diarization import NvidiaDiarization
-                diarizer_key = f"nvidia_{diarization_model}_{num_speakers}"
-                if diarizer_key not in diarizer_instances:
-                    diarizer_instances[diarizer_key] = NvidiaDiarization(
-                        model_name=diarization_model,
-                        device=config.asr.device,
-                        chunk_size=10,
-                        right_context=5,
-                        fifo_size=20,
-                        update_period=10,
-                        speaker_cache_size=50,
-                        num_speakers=num_speakers
-                    )
-                diarizer = diarizer_instances[diarizer_key]
-                speaker_segments = diarizer.run_offline_diarization(converted_path)
+            # Apply speaker filtering if needed
+            if num_speakers and len(set(s['speaker'] for s in speaker_segments)) > num_speakers:
+                speaker_segments = diarizer.filter_speakers(speaker_segments, num_speakers)
 
             print(f"Parsed speaker segments type: {type(speaker_segments)}")
             print(f"Parsed speaker segments length: {len(speaker_segments) if hasattr(speaker_segments, '__len__') else 'N/A'}")
@@ -247,6 +266,10 @@ def run_inference(request_data):
                         'end': duration,
                         'speaker': 'SPEAKER_00'
                     })
+
+        # Merge consecutive segments from the same speaker
+        if diarize:
+            results = merge_consecutive_speaker_segments(results)
 
         # Sort results by timestamp
         results_sorted = sorted(results, key=lambda x: x['start'])

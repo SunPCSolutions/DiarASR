@@ -40,7 +40,7 @@ class DiarizationConfig:
     backend: str = "hybrid"  # "hybrid" (Pyannote), "nvidia" (Sortformer), "auto"
 
     # Pyannote settings (for hybrid backend)
-    pyannote_model: str = "pyannote/speaker-diarization-3.1"
+    pyannote_model: str = "pyannote/speaker-diarization-community-1"
     hf_token: Optional[str] = None
 
     # NVIDIA settings (for nvidia backend)
@@ -141,7 +141,7 @@ DEFAULT_CONFIG = GlobalConfig(
     ),
     diarization=DiarizationConfig(
         backend="hybrid",  # Use Pyannote by default for better quality
-        pyannote_model="pyannote/speaker-diarization-3.1",
+        pyannote_model="pyannote/speaker-diarization-community-1",
         hf_token=None,  # Will be set from environment
         nvidia_model="nvidia/diar_streaming_sortformer_4spk-v2",
         device="auto",
