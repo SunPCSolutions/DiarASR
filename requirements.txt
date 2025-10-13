@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+torch --index-url https://download.pytorch.org/whl/cu128
+torchaudio --index-url https://download.pytorch.org/whl/cu128
+torchvision --index-url https://download.pytorch.org/whl/cu128
+nemo-toolkit[asr]
+pydub
+transformers
+python-multipart
+huggingface-hub

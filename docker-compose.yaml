@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  diarasr:
+    build: .
+    ports:
+      - "8003:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - ASR_MODEL=nvidia/parakeet-tdt-0.6b-v3
+      - DIARIZATION_MODEL=nvidia/diar_streaming_sortformer_4spk-v2
+    volumes:
+      - ./cache:/root/.cache/huggingface
+      - ./tmp:/tmp
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8000/docs')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
