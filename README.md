@@ -6,7 +6,7 @@ A production-ready, HIPAA-compliant speech processing service that combines auto
 
 - **🔒 Enterprise Security**: API key authentication, input validation, rate limiting, data protection
 - **🏗️ Modular Architecture**: Clean separation into 4 focused modules for maintainability
-- **🎯 High-Quality Processing**: DER <7.8%, WER <2% with perfect speaker attribution
+- **🎯 High-Quality Processing**: DER ~8-20%, WER ~1-5% with robust speaker attribution
 - **🩺 HIPAA Compliance**: Secure file handling, audit logging, encrypted temporary storage
 - **🧪 Comprehensive Testing**: 45+ security tests, fuzz testing, CI/CD integration
 - **📊 Real-time Monitoring**: Security event tracking, anomaly detection, automated scanning
@@ -59,6 +59,37 @@ A production-ready, HIPAA-compliant speech processing service that combines auto
     ```
 
 ## 🚀 Usage
+
+### Python
+
+For direct Python integration:
+
+```python
+import os
+from app.app import process_audio
+
+# Set your HuggingFace token (required for model access)
+os.environ['HF_TOKEN'] = 'your-huggingface-token-here'
+
+# Process an audio file
+result = process_audio(
+    audio_path='path/to/your/audio.wav',
+    diarize=True,  # Enable speaker diarization
+    min_speakers=2,
+    max_speakers=4,
+    output_format='json'
+)
+
+# Result contains transcribed segments with speaker attribution
+for segment in result['segments']:
+    print(f"Speaker {segment['speaker']}: {segment['text']}")
+```
+
+**Required Models & Access:**
+- **ASR Model**: `nvidia/parakeet-tdt-1.1b` - Request access at [HuggingFace](https://huggingface.co/nvidia/parakeet-tdt-1.1b)
+- **Diarization Model**: `pyannote/speaker-diarization-community-1` - Request access at [HuggingFace](https://huggingface.co/pyannote/speaker-diarization-community-1)
+
+**Note**: Access to these models must be granted on HuggingFace. Apply for access and provide your HuggingFace token via the `HF_TOKEN` environment variable.
 
 ### Start the API Server
 
@@ -141,7 +172,7 @@ FastAPI Security Layer (API Gateway)
 │   ├── vad_processor.py → Voice activity detection (Silero VAD)
 │   ├── asr_model.py → Core ASR inference (Parakeet TDT-1.1B)
 │   └── batch_processor.py → Batch processing & results
-├── 🎯 Diarization Integration → Pyannote Community-1 (DER <7.8%)
+├── 🎯 Diarization Integration → Pyannote Community-1 (DER ~8-20%)
 ├── 📊 Security Audit Logging → HIPAA Compliant → Enterprise Production
 └── 🧪 Comprehensive Testing → 45+ Security Tests → CI/CD Integration
 ```
@@ -172,9 +203,9 @@ Edit `config.py` to customize:
 
 ## 📊 Performance
 
-- **ASR Accuracy**: <2% WER with Parakeet TDT-1.1B model
-- **Diarization Quality**: DER <7.8% with Pyannote Community-1
-- **Speaker Attribution**: 100% accuracy in medical conversations
+- **ASR Accuracy**: ~1-5% WER with Parakeet TDT-1.1B model
+- **Diarization Quality**: DER ~8-20% with Pyannote Community-1
+- **Speaker Attribution**: High accuracy in speaker identification
 - **Processing Speed**: ~12x real-time with GPU acceleration
 - **Memory Usage**: <8GB VRAM with automatic cleanup
 - **Security Overhead**: Minimal (<5%) performance impact
@@ -305,8 +336,8 @@ For support or questions, please contact the development team.
 - **CI/CD Pipeline**: Automated security scanning
 
 ### Quality Metrics
-- **DER**: <7.8% (Diarization Error Rate)
-- **WER**: <2% (Word Error Rate)
+- **DER**: ~8-20% (Diarization Error Rate)
+- **WER**: ~1-5% (Word Error Rate)
 - **Security**: HIPAA-compliant processing
 - **Performance**: Minimal security overhead
 
