@@ -1,0 +1,44 @@
+services:
+  diarasr:
+    build: .
+    ports:
+      - "8003:8003"
+    env_file:
+      - .env
+    volumes:
+      - ./cache:/home/app/.cache/huggingface:rw  # Writable cache directory
+      - ./tmp:/app/tmp:rw  # Writable temp directory
+    networks:
+      - docknet
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8003/docs')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Vulnerability scanner service
+  trivy:
+    image: aquasecurity/trivy:latest
+    command: ["image", "--exit-code", "1", "--no-progress", "diarasr:latest"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - diarasr
+    profiles:
+      - security-scan  # Only run when explicitly requested
+
+networks:
+  docknet:
+    external: true  # External network for inter-container communication
