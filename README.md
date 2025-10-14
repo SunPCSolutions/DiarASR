@@ -121,4 +121,4 @@ Our greatest appreciation to the creators of:
 - **FastAPI** (Sebastián Ramírez) for the web framework
 - **PyTorch** (Facebook AI Research) for deep learning
 
-Please cite these works if used in your research. Full citations in [`docs/API_PARAMETERS.md`](docs/API_PARAMETERS.md).
+Please cite these works if used in your research.
