@@ -1,6 +1,6 @@
 # Multi-stage build for optimized diarasr API image
 # Builder stage: Install Python dependencies
-FROM nvidia/cuda:12.8-runtime-ubuntu22.04 AS builder
+FROM nvidia/cuda:13.0.1-runtime-ubuntu24.04 AS builder
 
 # Install Python and build tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,7 +17,7 @@ COPY requirements.txt .
 RUN pip3 install --no-cache-dir --user -r requirements.txt
 
 # Runtime stage: Minimal image with CUDA runtime
-FROM nvidia/cuda:12.8-runtime-ubuntu22.04
+FROM nvidia/cuda:13.0.1-runtime-ubuntu24.04
 
 # Install Python runtime only
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -40,8 +40,15 @@ COPY app.py .
 RUN useradd --create-home --shell /bin/bash --user-group --uid 1001 app \
     && chown -R app:app /root/.local
 
+# Create writable directories for read-only filesystem
+RUN mkdir -p /tmp /var/tmp /app/tmp /app/logs \
+    && chown -R app:app /tmp /var/tmp /app/tmp /app/logs
+
 # Switch to non-root user
 USER app
+
+# Set working directory
+WORKDIR /app
 
 # Expose port
 EXPOSE 8000

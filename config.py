@@ -6,8 +6,155 @@ This module provides a centralized configuration system for ASR and diarization 
 All parameters can be easily modified in this single location with sensible defaults.
 """
 
+import os
+import re
+import logging
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
+
+
+def read_docker_secret(secret_name: str, default: Optional[str] = None) -> Optional[str]:
+    """
+    Read a Docker secret from /run/secrets/ directory.
+
+    Args:
+        secret_name: Name of the secret file
+        default: Default value if secret not found
+
+    Returns:
+        Secret value or default
+    """
+    secret_path = f"/run/secrets/{secret_name}"
+    try:
+        with open(secret_path, 'r') as f:
+            return f.read().strip()
+    except (FileNotFoundError, IOError):
+        return default
+
+
+def sanitize_env_value(value: str, max_length: int = 1000) -> str:
+    """
+    Sanitize environment variable value to prevent injection attacks.
+
+    Args:
+        value: Raw environment variable value
+        max_length: Maximum allowed length
+
+    Returns:
+        Sanitized value
+
+    Raises:
+        ValueError: If value is invalid or too long
+    """
+    if not isinstance(value, str):
+        raise ValueError("Environment variable must be a string")
+
+    if len(value) > max_length:
+        raise ValueError(f"Environment variable too long (max {max_length} characters)")
+
+    # Remove potentially dangerous characters while preserving functionality
+    # Allow alphanumeric, spaces, hyphens, underscores, dots, slashes, colons
+    sanitized = re.sub(r'[^\w\s\-_./:]', '', value)
+
+    return sanitized.strip()
+
+
+def get_secure_env_var(var_name: str, default: Optional[str] = None,
+                      required: bool = False, max_length: int = 1000) -> Optional[str]:
+    """
+    Get environment variable with Docker secrets fallback and sanitization.
+
+    Priority order:
+    1. Docker secret (if exists)
+    2. Environment variable
+    3. Default value
+
+    Args:
+        var_name: Environment variable name
+        default: Default value
+        required: Whether variable is required
+        max_length: Maximum allowed length
+
+    Returns:
+        Sanitized environment variable value
+
+    Raises:
+        ValueError: If required variable is missing or invalid
+    """
+    # Try Docker secret first
+    value = read_docker_secret(var_name)
+
+    # Fall back to environment variable
+    if value is None:
+        value = os.getenv(var_name)
+
+    # Use default if still None
+    if value is None:
+        if required:
+            raise ValueError(f"Required environment variable '{var_name}' not found")
+        return default
+
+    # Sanitize the value
+    try:
+        return sanitize_env_value(value, max_length)
+    except ValueError as e:
+        if required:
+            raise ValueError(f"Invalid value for required environment variable '{var_name}': {e}")
+        logging.warning(f"Invalid value for environment variable '{var_name}': {e}")
+        return default
+
+
+def load_api_keys() -> List[str]:
+    """Load API keys from secure environment variables."""
+    api_keys_str = get_secure_env_var('API_KEYS', '')
+    if api_keys_str:
+        return [key.strip() for key in api_keys_str.split(',') if key.strip()]
+    return []
+
+
+def validate_environment() -> Dict[str, str]:
+    """
+    Validate all required environment variables on startup.
+
+    Returns:
+        Dict of validated environment variables
+
+    Raises:
+        ValueError: If any required variables are missing or invalid
+    """
+    validated_vars = {}
+
+    # Required variables for basic functionality (none currently required)
+    required_vars = [
+        # ('HF_TOKEN', None, 200),  # HuggingFace token (made optional)
+    ]
+
+    # Optional but recommended variables
+    optional_vars = [
+        ('API_KEYS', None, 1000),  # Comma-separated API keys
+        ('LOG_LEVEL', 'INFO', 10),
+        ('MAX_FILE_SIZE_MB', '100', 10),
+    ]
+
+    # Validate required variables
+    for var_name, default, max_len in required_vars:
+        try:
+            value = get_secure_env_var(var_name, default, required=True, max_length=max_len)
+            validated_vars[var_name] = value
+        except ValueError as e:
+            logging.error(f"Environment validation failed: {e}")
+            raise
+
+    # Validate optional variables
+    for var_name, default, max_len in optional_vars:
+        try:
+            value = get_secure_env_var(var_name, default, required=False, max_length=max_len)
+            if value is not None:
+                validated_vars[var_name] = value
+        except ValueError as e:
+            logging.warning(f"Optional environment variable '{var_name}' invalid: {e}")
+
+    return validated_vars
 
 
 @dataclass
@@ -41,7 +188,7 @@ class DiarizationConfig:
 
     # Pyannote settings (for hybrid backend)
     pyannote_model: str = "pyannote/speaker-diarization-community-1"
-    hf_token: Optional[str] = None
+    hf_token: Optional[str] = field(default_factory=lambda: get_secure_env_var('HF_TOKEN'))
 
     # NVIDIA settings (for nvidia backend)
     nvidia_model: str = "nvidia/diar_streaming_sortformer_4spk-v2"
@@ -76,6 +223,75 @@ class StreamingConfig:
 
 
 @dataclass
+class LoggingConfig:
+    """Configuration for logging parameters."""
+
+    # Log levels
+    app_log_level: str = "INFO"  # Application log level
+    worker_log_level: str = "INFO"  # Worker subprocess log level
+
+    # Log files
+    app_log_file: str = "logs/app.log"  # Application log file path
+    worker_log_file: str = "logs/worker.log"  # Worker log file path
+
+    # Log rotation
+    max_log_size_mb: int = 10  # Maximum log file size in MB
+    backup_count: int = 5  # Number of backup log files to keep
+
+    # Log format
+    log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    date_format: str = "%Y-%m-%d %H:%M:%S"
+
+    # Sensitive data masking
+    mask_sensitive_data: bool = True  # Enable sensitive data masking
+    sensitive_patterns: List[str] = field(default_factory=lambda: [
+        r'HF_TOKEN=[^\s&]+',  # HuggingFace tokens
+        r'hf_[a-zA-Z0-9]{34,}',  # HuggingFace API keys
+        r'/home/[^/\s]+',  # Home directory paths
+        r'/tmp/[^/\s]+',  # Temp directory paths
+        r'C:\\Users\\[^\\]+',  # Windows user paths
+        r'/Users/[^/]+',  # macOS user paths
+    ])
+
+
+@dataclass
+class SecurityConfig:
+    """Configuration for API security parameters."""
+
+    # Authentication
+    enable_api_key_auth: bool = True  # Enable API key authentication
+    api_keys: List[str] = field(default_factory=lambda: [])  # Will be loaded dynamically
+    api_key_header: str = "X-API-Key"  # Header name for API key
+
+    # CORS settings
+    cors_enabled: bool = True  # Enable CORS
+    cors_origins: List[str] = field(default_factory=lambda: ["*"])  # Allowed origins
+    cors_methods: List[str] = field(default_factory=lambda: ["GET", "POST"])  # Allowed methods
+    cors_headers: List[str] = field(default_factory=lambda: ["*"])  # Allowed headers
+    cors_allow_credentials: bool = False  # Allow credentials
+
+    # Security headers
+    security_headers_enabled: bool = True  # Enable security headers
+    hsts_enabled: bool = True  # HTTP Strict Transport Security
+    hsts_max_age: int = 31536000  # HSTS max age (1 year)
+    hsts_include_subdomains: bool = True  # Include subdomains in HSTS
+    hsts_preload: bool = False  # Preload HSTS
+
+    csp_enabled: bool = True  # Content Security Policy
+    csp_policy: str = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+
+    x_frame_options: str = "DENY"  # X-Frame-Options header
+    x_content_type_options: str = "nosniff"  # X-Content-Type-Options header
+    referrer_policy: str = "strict-origin-when-cross-origin"  # Referrer-Policy header
+
+    # Input sanitization
+    sanitize_inputs: bool = True  # Enable input sanitization
+    max_filename_length: int = 255  # Maximum filename length
+    max_parameter_length: int = 1000  # Maximum parameter value length
+    allowed_filename_chars: str = r"^[a-zA-Z0-9._\-\s]+$"  # Allowed filename characters regex
+
+
+@dataclass
 class ProcessingConfig:
     """Configuration for general processing parameters."""
 
@@ -94,6 +310,23 @@ class ProcessingConfig:
     secure_temp_dir: bool = True  # Use secure temporary directories
     auto_cleanup: bool = True  # Automatically clean up temporary files
 
+    # Data protection enhancements
+    encrypt_temp_files: bool = False  # Encrypt temporary files during processing
+    encryption_key: Optional[str] = None  # Encryption key (if None, generate randomly)
+    secure_delete_overwrites: int = 3  # Number of overwrites for secure deletion
+    enable_audit_logging: bool = True  # Enable audit logging for file operations
+    audit_log_file: str = "logs/audit.log"  # Audit log file path
+    retention_hours: int = 24  # Hours to retain temporary files before cleanup
+    auto_retention_cleanup: bool = True  # Enable automatic cleanup based on retention policy
+
+    # Validation settings
+    allowed_mime_types: List[str] = field(default_factory=lambda: [
+        'audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/flac', 'audio/x-flac',
+        'audio/mp4', 'audio/x-m4a', 'audio/aac'
+    ])
+    rate_limit_requests: int = 10  # Requests per time window
+    rate_limit_window_seconds: int = 60  # Time window in seconds
+
 
 @dataclass
 class GlobalConfig:
@@ -104,6 +337,8 @@ class GlobalConfig:
     diarization: DiarizationConfig = field(default_factory=DiarizationConfig)
     streaming: StreamingConfig = field(default_factory=StreamingConfig)
     processing: ProcessingConfig = field(default_factory=ProcessingConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
+    security: SecurityConfig = field(default_factory=SecurityConfig)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""
@@ -111,7 +346,9 @@ class GlobalConfig:
             'asr': self.asr.__dict__,
             'diarization': self.diarization.__dict__,
             'streaming': self.streaming.__dict__,
-            'processing': self.processing.__dict__
+            'processing': self.processing.__dict__,
+            'logging': self.logging.__dict__,
+            'security': self.security.__dict__
         }
 
     @classmethod
@@ -121,7 +358,9 @@ class GlobalConfig:
             asr=ASRConfig(**config_dict.get('asr', {})),
             diarization=DiarizationConfig(**config_dict.get('diarization', {})),
             streaming=StreamingConfig(**config_dict.get('streaming', {})),
-            processing=ProcessingConfig(**config_dict.get('processing', {}))
+            processing=ProcessingConfig(**config_dict.get('processing', {})),
+            logging=LoggingConfig(**config_dict.get('logging', {})),
+            security=SecurityConfig(**config_dict.get('security', {}))
         )
 
 
@@ -167,7 +406,47 @@ DEFAULT_CONFIG = GlobalConfig(
         allowed_extensions=['.mp3', '.wav', '.flac', '.m4a', '.aac'],
         output_format="json",
         secure_temp_dir=True,
-        auto_cleanup=True
+        auto_cleanup=True,
+        encrypt_temp_files=False,  # Disabled by default for performance
+        encryption_key=None,  # Will generate randomly if encryption enabled
+        secure_delete_overwrites=3,  # 3 overwrites for secure deletion
+        enable_audit_logging=True,  # Enable audit logging
+        audit_log_file="logs/audit.log",  # Audit log location
+        retention_hours=24,  # Retain temp files for 24 hours
+        auto_retention_cleanup=True  # Enable retention-based cleanup
+    ),
+    logging=LoggingConfig(
+        app_log_level="INFO",
+        worker_log_level="INFO",
+        app_log_file="logs/app.log",
+        worker_log_file="logs/worker.log",
+        max_log_size_mb=10,
+        backup_count=5,
+        mask_sensitive_data=True
+    ),
+    security=SecurityConfig(
+        enable_api_key_auth=True,
+        api_keys=[],  # Should be set via environment variable or config override
+        api_key_header="X-API-Key",
+        cors_enabled=True,
+        cors_origins=["*"],  # Allow all origins by default
+        cors_methods=["GET", "POST"],
+        cors_headers=["*"],
+        cors_allow_credentials=False,
+        security_headers_enabled=True,
+        hsts_enabled=True,
+        hsts_max_age=31536000,
+        hsts_include_subdomains=True,
+        hsts_preload=False,
+        csp_enabled=True,
+        csp_policy="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'",
+        x_frame_options="DENY",
+        x_content_type_options="nosniff",
+        referrer_policy="strict-origin-when-cross-origin",
+        sanitize_inputs=True,
+        max_filename_length=255,
+        max_parameter_length=1000,
+        allowed_filename_chars=r"^[a-zA-Z0-9._\-\s]+$"
     )
 )
 
@@ -213,6 +492,8 @@ def create_custom_config(**kwargs) -> GlobalConfig:
             setattr(config.streaming, key, value)
         elif hasattr(config.processing, key):
             setattr(config.processing, key, value)
+        elif hasattr(config.security, key):
+            setattr(config.security, key, value)
 
     return config
 

@@ -7,15 +7,22 @@ diarization and ASR modules with automatic cleanup and secure file handling.
 """
 
 import os
+import sys
 import tempfile
 import shutil
 import hashlib
 import json
+import secrets
+import time
 from typing import List, Dict, Optional, Any, Union, TYPE_CHECKING
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from contextlib import contextmanager
 import logging
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+import base64
 
 from nvidia_diarization import NvidiaDiarization
 from nvidia_asr import NvidiaASR
@@ -56,6 +63,15 @@ class PipelineConfig:
     max_file_size_mb: int = get_config().processing.max_file_size_mb
     allowed_extensions: Optional[List[str]] = None
 
+    # Data protection enhancements
+    encrypt_temp_files: bool = get_config().processing.encrypt_temp_files
+    encryption_key: Optional[str] = get_config().processing.encryption_key
+    secure_delete_overwrites: int = get_config().processing.secure_delete_overwrites
+    enable_audit_logging: bool = get_config().processing.enable_audit_logging
+    audit_log_file: str = get_config().processing.audit_log_file
+    retention_hours: int = get_config().processing.retention_hours
+    auto_retention_cleanup: bool = get_config().processing.auto_retention_cleanup
+
     # Processing settings
     device: str = get_config().asr.device
     output_format: str = get_config().processing.output_format  # json, txt, or both
@@ -65,14 +81,159 @@ class PipelineConfig:
             self.allowed_extensions = get_config().processing.allowed_extensions
 
 
-class SecureTempManager:
-    """Manages secure temporary files and directories."""
+@dataclass
+class FileAuditEntry:
+    """Audit log entry for file operations."""
+    timestamp: float
+    operation: str  # 'create', 'access', 'delete', 'encrypt', 'decrypt'
+    file_path: str
+    file_size: Optional[int] = None
+    user_id: Optional[str] = None
+    success: bool = True
+    error_message: Optional[str] = None
 
-    def __init__(self, use_secure_temp: bool = True, base_temp_dir: Optional[str] = None):
+
+class SecureTempManager:
+    """Enhanced secure temporary file manager with encryption, audit logging, and retention policies."""
+
+    def __init__(
+        self,
+        use_secure_temp: bool = True,
+        base_temp_dir: Optional[str] = None,
+        encrypt_files: bool = False,
+        encryption_key: Optional[str] = None,
+        secure_delete_overwrites: int = 3,
+        enable_audit_logging: bool = True,
+        audit_log_file: str = "logs/audit.log",
+        retention_hours: int = 24,
+        auto_retention_cleanup: bool = True
+    ):
         self.use_secure_temp = use_secure_temp
         self.base_temp_dir = base_temp_dir or tempfile.gettempdir()
+        self.encrypt_files = encrypt_files
+        self.encryption_key = encryption_key
+        self.secure_delete_overwrites = secure_delete_overwrites
+        self.enable_audit_logging = enable_audit_logging
+        self.audit_log_file = audit_log_file
+        self.retention_hours = retention_hours
+        self.auto_retention_cleanup = auto_retention_cleanup
+
         self.temp_dirs: List[str] = []
         self.temp_files: List[str] = []
+        self.file_timestamps: Dict[str, float] = {}  # Track creation times for retention
+        self.fernet: Optional[Fernet] = None
+
+        # Initialize encryption if enabled
+        if self.encrypt_files:
+            self._initialize_encryption()
+
+        # Initialize audit logging
+        if self.enable_audit_logging:
+            self._ensure_audit_log_directory()
+
+        # Perform initial retention cleanup
+        if self.auto_retention_cleanup:
+            self._cleanup_expired_files()
+
+    def _initialize_encryption(self):
+        """Initialize encryption with provided or generated key."""
+        if self.encryption_key:
+            # Use provided key
+            key_bytes = self.encryption_key.encode()
+        else:
+            # Generate a random key
+            key_bytes = secrets.token_bytes(32)
+
+        # Create Fernet cipher
+        self.fernet = Fernet(base64.urlsafe_b64encode(key_bytes))
+
+    def _ensure_audit_log_directory(self):
+        """Ensure the audit log directory exists."""
+        log_dir = os.path.dirname(self.audit_log_file)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+
+    def _log_audit_event(self, operation: str, file_path: str, **kwargs):
+        """Log an audit event."""
+        if not self.enable_audit_logging:
+            return
+
+        entry = FileAuditEntry(
+            timestamp=time.time(),
+            operation=operation,
+            file_path=file_path,
+            **kwargs
+        )
+
+        try:
+            with open(self.audit_log_file, 'a') as f:
+                json.dump(asdict(entry), f)
+                f.write('\n')
+        except Exception as e:
+            # Log audit failure to stderr but don't raise
+            print(f"Failed to write audit log: {e}", file=sys.stderr)
+
+    def _encrypt_data(self, data: bytes) -> bytes:
+        """Encrypt data if encryption is enabled."""
+        if self.fernet and self.encrypt_files:
+            return self.fernet.encrypt(data)
+        return data
+
+    def _decrypt_data(self, data: bytes) -> bytes:
+        """Decrypt data if encryption is enabled."""
+        if self.fernet and self.encrypt_files:
+            return self.fernet.decrypt(data)
+        return data
+
+    def _secure_delete_file(self, file_path: str):
+        """Securely delete a file with multiple overwrites."""
+        if not os.path.exists(file_path):
+            return
+
+        try:
+            file_size = os.path.getsize(file_path)
+
+            # Multiple overwrites with different patterns
+            patterns = [b'\x00', b'\xFF', secrets.token_bytes(1) * file_size]
+
+            for i in range(min(self.secure_delete_overwrites, len(patterns))):
+                with open(file_path, 'wb') as f:
+                    f.write(patterns[i][:file_size])
+
+            # Final overwrite with random data
+            with open(file_path, 'wb') as f:
+                f.write(secrets.token_bytes(file_size))
+
+            os.remove(file_path)
+            self._log_audit_event('delete', file_path, file_size=file_size, success=True)
+
+        except Exception as e:
+            # Fallback to regular deletion
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+            self._log_audit_event('delete', file_path, success=False, error_message=str(e))
+
+    def _cleanup_expired_files(self):
+        """Clean up files older than retention period."""
+        if not self.auto_retention_cleanup:
+            return
+
+        current_time = time.time()
+        retention_seconds = self.retention_hours * 3600
+        expired_files = []
+
+        for file_path, timestamp in self.file_timestamps.items():
+            if current_time - timestamp > retention_seconds:
+                expired_files.append(file_path)
+
+        for file_path in expired_files:
+            if os.path.exists(file_path):
+                self._secure_delete_file(file_path)
+            if file_path in self.temp_files:
+                self.temp_files.remove(file_path)
+            del self.file_timestamps[file_path]
 
     @contextmanager
     def secure_temp_dir(self, prefix: str = "asr_pipeline_"):
@@ -83,6 +244,8 @@ class SecureTempManager:
             # Set restrictive permissions (owner read/write/execute only)
             os.chmod(temp_dir, 0o700)
             self.temp_dirs.append(temp_dir)
+            self.file_timestamps[temp_dir] = time.time()
+            self._log_audit_event('create_dir', temp_dir)
         else:
             temp_dir = self.base_temp_dir
 
@@ -92,27 +255,48 @@ class SecureTempManager:
             if self.use_secure_temp and os.path.exists(temp_dir):
                 self._secure_cleanup_dir(temp_dir)
                 self.temp_dirs.remove(temp_dir)
+                if temp_dir in self.file_timestamps:
+                    del self.file_timestamps[temp_dir]
 
     def register_temp_file(self, file_path: str):
         """Register a temporary file for cleanup."""
         self.temp_files.append(file_path)
+        self.file_timestamps[file_path] = time.time()
+        self._log_audit_event('create', file_path, file_size=os.path.getsize(file_path) if os.path.exists(file_path) else None)
+
+    def write_encrypted_file(self, file_path: str, data: bytes):
+        """Write data to file with optional encryption."""
+        encrypted_data = self._encrypt_data(data)
+        with open(file_path, 'wb') as f:
+            f.write(encrypted_data)
+        self.register_temp_file(file_path)
+        self._log_audit_event('encrypt' if self.encrypt_files else 'create', file_path, file_size=len(encrypted_data))
+
+    def read_encrypted_file(self, file_path: str) -> bytes:
+        """Read data from file with optional decryption."""
+        with open(file_path, 'rb') as f:
+            encrypted_data = f.read()
+        decrypted_data = self._decrypt_data(encrypted_data)
+        self._log_audit_event('decrypt' if self.encrypt_files else 'access', file_path, file_size=len(encrypted_data))
+        return decrypted_data
 
     def cleanup_all(self):
         """Clean up all registered temporary files and directories."""
         # Clean up files
         for file_path in self.temp_files[:]:  # Copy list to avoid modification during iteration
             if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except OSError:
-                    pass  # File might already be deleted
+                self._secure_delete_file(file_path)
             self.temp_files.remove(file_path)
+            if file_path in self.file_timestamps:
+                del self.file_timestamps[file_path]
 
         # Clean up directories
         for dir_path in self.temp_dirs[:]:
             if os.path.exists(dir_path):
                 self._secure_cleanup_dir(dir_path)
             self.temp_dirs.remove(dir_path)
+            if dir_path in self.file_timestamps:
+                del self.file_timestamps[dir_path]
 
     def _secure_cleanup_dir(self, dir_path: str):
         """Securely clean up a directory by overwriting files before deletion."""
@@ -120,13 +304,7 @@ class SecureTempManager:
             for root, dirs, files in os.walk(dir_path, topdown=False):
                 for file in files:
                     file_path = os.path.join(root, file)
-                    try:
-                        # Overwrite file with zeros before deletion for security
-                        with open(file_path, 'wb') as f:
-                            f.write(b'\x00' * os.path.getsize(file_path))
-                        os.remove(file_path)
-                    except OSError:
-                        pass
+                    self._secure_delete_file(file_path)
                 for dir_name in dirs:
                     try:
                         os.rmdir(os.path.join(root, dir_name))
@@ -158,7 +336,16 @@ class PipelineOrchestrator:
             config: Pipeline configuration
         """
         self.config = config or PipelineConfig()
-        self.temp_manager = SecureTempManager(self.config.secure_temp_dir)
+        self.temp_manager = SecureTempManager(
+            use_secure_temp=self.config.secure_temp_dir,
+            encrypt_files=self.config.encrypt_temp_files,
+            encryption_key=self.config.encryption_key,
+            secure_delete_overwrites=self.config.secure_delete_overwrites,
+            enable_audit_logging=self.config.enable_audit_logging,
+            audit_log_file=self.config.audit_log_file,
+            retention_hours=self.config.retention_hours,
+            auto_retention_cleanup=self.config.auto_retention_cleanup
+        )
         self.diarization_module: Optional[Any] = None  # Can be NvidiaDiarization or HybridDiarization
         self.asr_module: Optional[NvidiaASR] = None
         self.logger = self._setup_logging()

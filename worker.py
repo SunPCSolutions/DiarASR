@@ -11,6 +11,7 @@ import torch
 import gc
 import logging
 from config import get_config
+from logging_config import get_worker_logger
 
 # Completely suppress all stdout output except final JSON
 import os
@@ -24,8 +25,8 @@ null_device = open(os.devnull, 'w')
 old_stdout = sys.stdout
 sys.stdout = null_device
 
-# Set up logging to stderr only
-logging.basicConfig(level=logging.ERROR, stream=sys.stderr, format='%(levelname)s: %(message)s')
+# Initialize secure logging
+logger = get_worker_logger()
 
 def merge_consecutive_speaker_segments(segments):
     """
@@ -61,7 +62,7 @@ def merge_consecutive_speaker_segments(segments):
     # Add the last segment
     merged_segments.append(current_segment)
 
-    print(f"Merged {len(sorted_segments)} segments into {len(merged_segments)} diarization-controlled segments")
+    logger.info("Merged %d segments into %d diarization-controlled segments", len(sorted_segments), len(merged_segments))
     return merged_segments
 
 
@@ -115,7 +116,7 @@ def run_inference(request_data):
         if num_speakers is not None:
             if not (1 <= num_speakers <= 4):
                 raise ValueError("num_speakers must be between 1 and 4 (Sortformer model limit)")
-            print(f"Expected number of speakers: {num_speakers}")
+            logger.info("Expected number of speakers: %d", num_speakers)
 
         # Convert audio to 16kHz mono wav
         audio = AudioSegment.from_file(audio_path)
@@ -141,7 +142,7 @@ def run_inference(request_data):
                 try:
                     asr_models[asr_model] = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(asr_model)
                 except Exception as e:
-                    print(f"Failed to load {asr_model}, falling back to tdt_ctc: {e}")
+                    logger.warning("Failed to load %s, falling back to tdt_ctc: %s", asr_model, str(e))
                     asr_model = "nvidia/parakeet-tdt_ctc-1.1b"
                     asr_models[asr_model] = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(asr_model)
             elif asr_model == "nvidia/parakeet-tdt_ctc-1.1b":
@@ -184,10 +185,10 @@ def run_inference(request_data):
             if num_speakers and len(set(s['speaker'] for s in speaker_segments)) > num_speakers:
                 speaker_segments = diarizer.filter_speakers(speaker_segments, num_speakers)
 
-            print(f"Parsed speaker segments type: {type(speaker_segments)}")
-            print(f"Parsed speaker segments length: {len(speaker_segments) if hasattr(speaker_segments, '__len__') else 'N/A'}")
+            logger.debug("Parsed speaker segments type: %s", type(speaker_segments))
+            logger.debug("Parsed speaker segments length: %s", len(speaker_segments) if hasattr(speaker_segments, '__len__') else 'N/A')
             if speaker_segments:
-                print(f"First parsed segment: {speaker_segments[0]}")
+                logger.debug("First parsed segment: %s", speaker_segments[0])
 
             for segment in speaker_segments:
                 start_time = segment['start']
@@ -198,7 +199,7 @@ def run_inference(request_data):
                 # Skip segments that are too short for ASR
                 min_segment_duration = 0.2
                 if segment_duration < min_segment_duration:
-                    print(f"Skipping {speaker} segment ({segment_duration:.3f}s) - too short for ASR")
+                    logger.debug("Skipping %s segment (%.3fs) - too short for ASR", speaker, segment_duration)
                     continue
 
                 start_sample = int(start_time * sample_rate)
@@ -233,7 +234,7 @@ def run_inference(request_data):
                                 'speaker': speaker
                             })
                 except Exception as e:
-                    print(f"Error transcribing segment: {e}")
+                    logger.error("Error transcribing segment: %s", str(e))
         else:
             # Just ASR without diarization
             # VAD functionality commented out - using direct NeMo ASR
@@ -296,7 +297,7 @@ def run_inference(request_data):
     except Exception as e:
         import traceback
         error_msg = f"Worker error: {str(e)}\n{traceback.format_exc()}"
-        print(error_msg, file=sys.stderr)
+        logger.error("Worker error: %s", error_msg)
         return {"error": str(e)}
 
 if __name__ == "__main__":

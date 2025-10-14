@@ -8,3 +8,9 @@ pydub
 transformers
 python-multipart
 huggingface-hub
+cryptography
+safety  # Dependency vulnerability scanning
+# Pin pyannote versions for compatibility
+pyannote-core>=6.0.0
+pyannote-database>=6.0.0
+pyannote-metrics>=4.0.0

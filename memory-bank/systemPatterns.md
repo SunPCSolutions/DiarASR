@@ -1,30 +1,47 @@
-# System Patterns: HYBRID ASR Diarization Architecture
+# System Patterns: SECURE MODULAR ASR Diarization Architecture
 
 ## Core Architecture Patterns
 
-### Hybrid Modular Pipeline Pattern (RECOMMENDED)
+### Enterprise Security Pipeline Pattern (PRIMARY)
 ```
-FastAPI Service (API Layer)
-├── HybridDiarization (Pyannote 3.1 + Speaker Control)
-├── NvidiaASR (Parakeet TDT with Silero VAD)
-├── VRAMManager (Automatic Model Unloading)
-└── SecureTempManager (File Security)
-```
-
-**Benefits**: Enterprise-grade quality, superior diarization accuracy, production-ready
-**Implementation**: Pyannote diarization + NVIDIA ASR with seamless integration
-
-### Legacy NVIDIA Pipeline Pattern (Available)
-```
-FastAPI Service (API Layer)
-├── NvidiaDiarization (Sortformer + Speaker Control)
-├── NvidiaASR (Parakeet CTC with Silero VAD)
-├── VRAMManager (Automatic Model Unloading)
-└── SecureTempManager (File Security)
+FastAPI Security Layer (API Gateway)
+├── API Key Authentication → Rate Limiting → Input Validation
+├── File Security → MIME/Magic Validation → Size Limits
+├── SecureTempManager → Encrypted Storage → Audit Logging
+└── Modular ASR Processing (Isolated Subprocess)
+    ├── audio_preprocessor.py → Audio validation & conversion
+    ├── vad_processor.py → Voice activity detection
+    ├── asr_model.py → Core ASR inference
+    └── batch_processor.py → Batch processing & results
 ```
 
-**Benefits**: NVIDIA ecosystem consistency, functional baseline
-**Implementation**: Pure NVIDIA implementation with VRAM management
+**Benefits**: HIPAA compliance, enterprise security, modular maintainability
+**Implementation**: Multi-layer security with isolated processing and comprehensive monitoring
+
+### Modular ASR Component Pattern
+```
+ASR System (4 Focused Modules)
+├── Audio Preprocessor
+│   ├── Format validation (WAV/MP3/FLAC/M4A)
+│   ├── Magic number checking
+│   ├── Sample rate conversion (16kHz)
+│   └── Mono channel conversion
+├── VAD Processor
+│   ├── Silero VAD model loading
+│   ├── Speech segment detection
+│   └── Confidence thresholding
+├── ASR Model Handler
+│   ├── NeMo EncDecCTCModelBPE loading
+│   ├── GPU memory management
+│   └── Single/batch transcription
+└── Batch Processor
+    ├── Multi-file batch orchestration
+    ├── Result aggregation
+    └── Error handling & recovery
+```
+
+**Benefits**: Single responsibility, testability, maintainability
+**Implementation**: Clean separation of concerns with comprehensive error handling
 
 ### Secure Resource Management Pattern
 ```python
@@ -52,29 +69,42 @@ class GlobalConfig:
 
 ## Data Flow Patterns
 
-### Hybrid Sequential Processing Pipeline (PRIMARY)
+### Enterprise Security Processing Pipeline (PRIMARY)
 ```
-Audio File → Validation → Audio Preprocessing (16kHz) → Pyannote Diarization → Speaker Filtering → Segment Extraction → Parakeet TDT ASR → Speaker Assignment → Results → VRAM Cleanup
-```
-
-**Rationale**: High-quality diarization → precise segmentation → advanced ASR → perfect speaker attribution
-**Optimization**: GPU acceleration, batch processing, automatic memory management
-
-### Legacy NVIDIA Processing Pipeline (FALLBACK)
-```
-Audio File → Validation → Diarization → Speaker Filtering → Segment Extraction → ASR with VAD → Results → Optional VRAM Cleanup
-```
-
-**Rationale**: Diarization → speaker constraints → ASR processing with resource management
-**Optimization**: Batch processing, VAD filtering, automatic memory cleanup
-
-### Secure In-Memory Processing
-```
-File Input → Memory Buffer → Processing → Memory Output → Secure Cleanup
+Audio Upload → API Authentication → Rate Limiting → Input Validation
+                   ↓                              ↓
+            MIME/Magic Check → Size Limits → File Sanitization → Secure Storage
+                   ↓                              ↓
+            Modular ASR Processing (Isolated Subprocess)
+            ├── Audio Preprocessor → Format validation & conversion
+            ├── VAD Processor → Speech segment detection
+            ├── ASR Model → Core transcription (Parakeet TDT)
+            └── Batch Processor → Result aggregation
+                   ↓                              ↓
+            Diarization Integration → Pyannote Community-1 → Speaker Assignment
+                   ↓                              ↓
+            Security Audit Logging → Encrypted Results → Secure Cleanup
+                   ↓                              ↓
+            JSON Response → HIPAA Compliant → Ready for Next Request
 ```
 
-**Rationale**: Sensitive medical data never written to disk unencrypted
-**Implementation**: torchaudio waveform processing, temporary file cleanup
+**Rationale**: Multi-layer security → modular processing → quality assurance → compliance
+**Optimization**: Isolated subprocesses, encrypted storage, comprehensive monitoring
+
+### Secure File Handling Pattern
+```
+File Upload → Validation Chain → Secure Temp Storage → Processing → Audit Logging → Secure Deletion
+    ├── Content-Type validation
+    ├── Magic number verification
+    ├── Size limit enforcement
+    ├── Filename sanitization
+    ├── Encrypted storage (optional)
+    ├── Access logging
+    └── Zero-overwrite deletion
+```
+
+**Rationale**: Prevent malicious uploads, ensure data privacy, maintain audit trails
+**Implementation**: Multi-layer validation, encrypted temporary files, secure cleanup
 
 ## Component Interaction Patterns
 

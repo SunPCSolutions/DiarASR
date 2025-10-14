@@ -13,6 +13,7 @@ from typing import List, Dict, Optional, Tuple
 import nemo.collections.asr as nemo_asr
 from pydub import AudioSegment
 import torchaudio
+import logging
 
 
 class NvidiaDiarization:
@@ -70,19 +71,17 @@ class NvidiaDiarization:
         self.speaker_segments = []
         self.speaker_cache = {}
 
-        print(f"Initializing NVIDIA Diarization with model: {model_name}")
-        print(f"Device: {self.device}")
-        print(f"Streaming parameters:")
-        print(f"  chunk_size: {chunk_size}s")
-        print(f"  right_context: {right_context}s")
-        print(f"  fifo_size: {fifo_size}")
-        print(f"  update_period: {update_period}s")
-        print(f"  speaker_cache_size: {speaker_cache_size}")
+        logger = logging.getLogger(__name__)
+        logger.info("Initializing NVIDIA Diarization with model: %s", model_name)
+        logger.info("Device: %s", self.device)
+        logger.debug("Streaming parameters: chunk_size=%ds, right_context=%ds, fifo_size=%d, update_period=%ds, speaker_cache_size=%d",
+                    chunk_size, right_context, fifo_size, update_period, speaker_cache_size)
 
     def load_model(self):
         """Load the NVIDIA diarization model."""
+        logger = logging.getLogger(__name__)
         if self.model is None:
-            print(f"Loading model {self.model_name}...")
+            logger.info("Loading model %s...", self.model_name)
             from nemo.collections.asr.models import SortformerEncLabelModel
             self.model = SortformerEncLabelModel.from_pretrained(self.model_name)
 
@@ -96,8 +95,9 @@ class NvidiaDiarization:
 
             self.model = self.model.to(self.device)
             self.model.eval()
-            print("Model loaded successfully.")
-            print(f"Streaming parameters set: chunk_len={self.chunk_size}, right_context={self.right_context}, fifo_len={self.fifo_size}, update_period={self.update_period}, cache_size={self.speaker_cache_size}")
+            logger.info("Model loaded successfully")
+            logger.debug("Streaming parameters set: chunk_len=%d, right_context=%d, fifo_len=%d, update_period=%d, cache_size=%d",
+                        self.chunk_size, self.right_context, self.fifo_size, self.update_period, self.speaker_cache_size)
 
     def preprocess_audio(self, audio_path: str) -> Tuple[torch.Tensor, int]:
         """
@@ -148,8 +148,9 @@ class NvidiaDiarization:
             List of speaker segments with start, end, speaker info
         """
         self.load_model()
+        logger = logging.getLogger(__name__)
 
-        print(f"Running offline diarization on {audio_path}")
+        logger.info("Running offline diarization on %s", audio_path)
 
         # Preprocess audio
         waveform, sample_rate = self.preprocess_audio(audio_path)
@@ -163,10 +164,10 @@ class NvidiaDiarization:
             # Note: Sortformer model may not accept num_speakers parameter directly
             # The parameter is stored for potential post-processing filtering
             diarization_output = self.model.diarize(audio=temp_wav, batch_size=1)
-            print(f"Diarization completed, will filter to {self.num_speakers} speakers if specified")
+            logger.info("Diarization completed, will filter to %s speakers if specified", self.num_speakers)
 
-            print(f"Raw diarization output type: {type(diarization_output)}")
-            print(f"Raw diarization output: {diarization_output}")
+            logger.debug("Raw diarization output type: %s", type(diarization_output))
+            logger.debug("Raw diarization output: %s", diarization_output)
 
             # Parse output (list of segments)
             segments = self._parse_diarization_output(diarization_output)
@@ -203,12 +204,13 @@ class NvidiaDiarization:
                         new_segment['speaker'] = selected_speakers[segment['speaker']]
                         filtered_segments.append(new_segment)
 
-                print(f"Filtered from {len(segments)} to {len(filtered_segments)} segments, renumbered to {self.num_speakers} consecutive speakers")
+                logger.info("Filtered from %d to %d segments, renumbered to %d consecutive speakers",
+                           len(segments), len(filtered_segments), self.num_speakers)
                 segments = filtered_segments
 
-            print(f"Final segments: {len(segments)}")
+            logger.info("Final segments: %d", len(segments))
             if segments:
-                print(f"Sample segments: {segments[:3]}")
+                logger.debug("Sample segments: %s", segments[:3])
 
             return segments
 
@@ -412,6 +414,7 @@ class NvidiaDiarization:
 
     def cleanup(self):
         """Clean up resources."""
+        logger = logging.getLogger(__name__)
         if self.model is not None:
             del self.model
             self.model = None
@@ -419,7 +422,7 @@ class NvidiaDiarization:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        print("NVIDIA Diarization cleanup complete.")
+        logger.info("NVIDIA Diarization cleanup complete")
 
 
 # Convenience function for easy usage

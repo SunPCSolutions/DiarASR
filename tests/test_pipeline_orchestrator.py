@@ -7,6 +7,7 @@ This script tests the modular pipeline orchestrator with secure file handling.
 
 import os
 import sys
+import logging
 from pathlib import Path
 
 # Add current directory to path for imports
@@ -14,15 +15,19 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from pipeline_orchestrator import PipelineOrchestrator, PipelineConfig, process_audio_files
 
+# Set up basic logging for tests
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
+
 
 def test_basic_orchestrator():
     """Test basic orchestrator functionality."""
-    print("Testing basic PipelineOrchestrator functionality...")
+    logger.info("Testing basic PipelineOrchestrator functionality...")
 
     # Check if test file exists
     test_file = "test1.mp3"
     if not os.path.exists(test_file):
-        print(f"Error: Test file {test_file} not found")
+        logger.error("Test file %s not found", test_file)
         return False
 
     # Create orchestrator with default config
@@ -40,23 +45,23 @@ def test_basic_orchestrator():
         results = orchestrator.process_files(test_file)
 
         if not results:
-            print("Error: No results returned")
+            logger.error("No results returned")
             return False
 
         result = results[0]
-        print(f"Processed file: {result['file']}")
-        print(f"Total segments: {result.get('total_segments', 0)}")
+        logger.info("Processed file: %s", result['file'])
+        logger.info("Total segments: %d", result.get('total_segments', 0))
 
         if 'error' in result:
-            print(f"Processing error: {result['error']}")
+            logger.error("Processing error: %s", result['error'])
             # This might be expected if audio has no detectable speech
             if "No speaker segments detected" in result['error']:
-                print("Note: No segments detected - this may be expected for test audio")
+                logger.info("No segments detected - this may be expected for test audio")
                 return True
             return False
 
         segments = result.get('segments', [])
-        print(f"Successfully processed {len(segments)} segments")
+        logger.info("Successfully processed %d segments", len(segments))
 
         # Save results
         orchestrator.save_results(results, "test_orchestrator_output")
@@ -66,20 +71,20 @@ def test_basic_orchestrator():
         txt_file = "test_orchestrator_output.txt"
 
         if os.path.exists(json_file):
-            print(f"✓ JSON output created: {json_file}")
+            logger.info("✓ JSON output created: %s", json_file)
         else:
-            print(f"✗ JSON output missing: {json_file}")
+            logger.error("✗ JSON output missing: %s", json_file)
 
         if os.path.exists(txt_file):
-            print(f"✓ Text output created: {txt_file}")
+            logger.info("✓ Text output created: %s", txt_file)
         else:
-            print(f"✗ Text output missing: {txt_file}")
+            logger.error("✗ Text output missing: %s", txt_file)
 
         # Print sample results
         if segments:
-            print("\nSample results:")
+            logger.info("Sample results:")
             for i, segment in enumerate(segments[:3]):
-                print(f"  {segment['speaker']}: {segment['text'][:50]}...")
+                logger.info("  %s: %s...", segment['speaker'], segment['text'][:50])
 
         return True
 
@@ -96,11 +101,11 @@ def test_basic_orchestrator():
 
 def test_convenience_function():
     """Test the convenience function."""
-    print("\nTesting convenience function...")
+    logger.info("Testing convenience function...")
 
     test_file = "test1.mp3"
     if not os.path.exists(test_file):
-        print(f"Error: Test file {test_file} not found")
+        logger.error("Test file %s not found", test_file)
         return False
 
     try:
@@ -111,23 +116,23 @@ def test_convenience_function():
         )
 
         if not results:
-            print("Error: No results from convenience function")
+            logger.error("No results from convenience function")
             return False
 
         result = results[0]
-        print(f"Convenience function processed: {result['file']}")
-        print(f"Segments: {result.get('total_segments', 0)}")
+        logger.info("Convenience function processed: %s", result['file'])
+        logger.info("Segments: %d", result.get('total_segments', 0))
 
         return True
 
     except Exception as e:
-        print(f"Error in convenience function test: {e}")
+        logger.error("Error in convenience function test: %s", str(e))
         return False
 
 
 def test_configuration():
     """Test configuration options."""
-    print("\nTesting configuration options...")
+    logger.info("Testing configuration options...")
 
     # Test with custom config
     config = PipelineConfig(
@@ -139,29 +144,29 @@ def test_configuration():
         output_format="json"
     )
 
-    print(f"Config created with diarization model: {config.diarization_model}")
-    print(f"ASR model: {config.asr_model}")
-    print(f"VAD enabled: {config.asr_use_vad}")
-    print(f"Secure temp: {config.secure_temp_dir}")
+    logger.info("Config created with diarization model: %s", config.diarization_model)
+    logger.info("ASR model: %s", config.asr_model)
+    logger.info("VAD enabled: %s", config.asr_use_vad)
+    logger.info("Secure temp: %s", config.secure_temp_dir)
 
     return True
 
 
 def test_error_handling():
     """Test error handling."""
-    print("\nTesting error handling...")
+    logger.info("Testing error handling...")
 
     # Test with non-existent file
     orchestrator = PipelineOrchestrator()
     try:
         results = orchestrator.process_files("non_existent_file.mp3")
-        print("Error: Should have failed with non-existent file")
+        logger.error("Should have failed with non-existent file")
         return False
     except ValueError as e:
-        print(f"✓ Correctly caught error for non-existent file: {e}")
+        logger.info("✓ Correctly caught error for non-existent file: %s", str(e))
         return True
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        logger.error("Unexpected error: %s", str(e))
         return False
     finally:
         orchestrator.cleanup()
@@ -169,8 +174,8 @@ def test_error_handling():
 
 def main():
     """Run all tests."""
-    print("Pipeline Orchestrator Test Suite")
-    print("=" * 40)
+    logger.info("Pipeline Orchestrator Test Suite")
+    logger.info("=" * 40)
 
     tests = [
         ("Basic Orchestrator", test_basic_orchestrator),
@@ -183,24 +188,24 @@ def main():
     total = len(tests)
 
     for test_name, test_func in tests:
-        print(f"\n{'-' * 20} {test_name} {'-' * 20}")
+        logger.info("-" * 20 + " %s " + "-" * 20, test_name)
         try:
             if test_func():
-                print(f"✓ {test_name} PASSED")
+                logger.info("✓ %s PASSED", test_name)
                 passed += 1
             else:
-                print(f"✗ {test_name} FAILED")
+                logger.error("✗ %s FAILED", test_name)
         except Exception as e:
-            print(f"✗ {test_name} FAILED with exception: {e}")
+            logger.error("✗ %s FAILED with exception: %s", test_name, str(e))
 
-    print(f"\n{'=' * 40}")
-    print(f"Test Results: {passed}/{total} passed")
+    logger.info("=" * 40)
+    logger.info("Test Results: %d/%d passed", passed, total)
 
     if passed == total:
-        print("🎉 All tests passed!")
+        logger.info("🎉 All tests passed!")
         return 0
     else:
-        print("❌ Some tests failed")
+        logger.error("❌ Some tests failed")
         return 1
 
 

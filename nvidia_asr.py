@@ -8,16 +8,12 @@ EncDecCTCModelBPE with nvidia/parakeet-ctc-1.1b and integrated VAD functionality
 
 import os
 import torch
-import numpy as np
-from typing import List, Dict, Optional, Tuple, Union
-import nemo.collections.asr as nemo_asr
-from nemo.collections.asr.models import EncDecClassificationModel
-from pydub import AudioSegment
-import torchaudio
-import tempfile
-import json
-from pathlib import Path
+from typing import List, Dict, Optional, Tuple
 from config import get_config
+from audio_preprocessor import AudioPreprocessor
+from vad_processor import VADProcessor
+from asr_model import ASRModel
+from batch_processor import BatchProcessor
 
 
 class NvidiaASR:
@@ -76,9 +72,25 @@ class NvidiaASR:
         else:
             self.device = device
 
-        # Initialize models
-        self.asr_model = None
-        self.vad_model = None
+        # Initialize component modules
+        self.audio_preprocessor = AudioPreprocessor(sample_rate=self.sample_rate)
+        self.vad_processor = VADProcessor(
+            vad_model_name=self.vad_model_name,
+            vad_threshold=self.vad_threshold,
+            min_segment_duration=self.min_segment_duration,
+            device=self.device
+        ) if self.use_vad else None
+        self.asr_model = ASRModel(
+            asr_model_name=self.asr_model_name,
+            device=self.device
+        )
+        self.batch_processor = BatchProcessor(
+            audio_preprocessor=self.audio_preprocessor,
+            vad_processor=self.vad_processor,
+            asr_model=self.asr_model,
+            enable_batch_processing=self.enable_batch_processing,
+            use_vad=self.use_vad
+        )
 
         print(f"Initializing NVIDIA ASR with model: {asr_model_name}")
         print(f"Device: {self.device}")
@@ -89,50 +101,10 @@ class NvidiaASR:
         print(f"Batch processing: {enable_batch_processing} (batch_size={batch_size})")
 
     def load_models(self):
-        """Load ASR and VAD models."""
-        if self.asr_model is None:
-            print(f"Loading ASR model {self.asr_model_name}...")
-            self.asr_model = nemo_asr.models.EncDecCTCModelBPE.from_pretrained(self.asr_model_name)
-            self.asr_model = self.asr_model.to(self.device)
-            self.asr_model.eval()
-            print("ASR model loaded successfully.")
-
-        if self.use_vad and self.vad_model is None:
-            print(f"Loading Silero VAD model...")
-            try:
-                # Load Silero VAD model and utils from torch hub
-                model_and_utils = torch.hub.load(
-                    repo_or_dir='snakers4/silero-vad',
-                    model='silero_vad',
-                    force_reload=False  # Set to True for first run
-                )
-
-                # Handle different return formats
-                if isinstance(model_and_utils, tuple) and len(model_and_utils) == 2:
-                    self.vad_model, vad_utils = model_and_utils
-                    # Extract the functions we need
-                    (self.get_speech_timestamps, _, self.read_audio, *_) = vad_utils
-                else:
-                    # Fallback: assume it's just the model
-                    self.vad_model = model_and_utils
-                    # Load utils separately
-                    utils_module = torch.hub.load(
-                        repo_or_dir='snakers4/silero-vad',
-                        model='silero_vad',
-                        source='github',
-                        force_reload=False
-                    )
-                    if hasattr(utils_module, '__len__') and len(utils_module) > 1:
-                        _, vad_utils = utils_module
-                        (self.get_speech_timestamps, _, self.read_audio, *_) = vad_utils
-
-                self.vad_model = self.vad_model.to(self.device)
-                self.vad_model.eval()
-                print("Silero VAD model loaded successfully.")
-            except Exception as e:
-                print(f"Failed to load Silero VAD: {e}")
-                print("Falling back to no VAD")
-                self.use_vad = False
+        """Load ASR and VAD models through component modules."""
+        self.asr_model.load_model()
+        if self.vad_processor:
+            self.vad_processor.load_model()
 
     def preprocess_audio(self, audio_path: str) -> Tuple[torch.Tensor, int]:
         """
@@ -144,33 +116,7 @@ class NvidiaASR:
         Returns:
             Tuple of (audio_tensor, sample_rate)
         """
-        # Convert to WAV if needed
-        if not audio_path.endswith('.wav'):
-            temp_wav = audio_path.rsplit('.', 1)[0] + '_processed.wav'
-            audio = AudioSegment.from_file(audio_path)
-            audio = audio.set_channels(1).set_frame_rate(self.sample_rate)
-            audio.export(temp_wav, format="wav")
-            audio_path = temp_wav
-        else:
-            temp_wav = None
-
-        # Load audio
-        waveform, sample_rate = torchaudio.load(audio_path)
-
-        # Ensure mono
-        if waveform.shape[0] > 1:
-            waveform = torch.mean(waveform, dim=0, keepdim=True)
-
-        # Ensure correct sample rate
-        if sample_rate != self.sample_rate:
-            resampler = torchaudio.transforms.Resample(sample_rate, self.sample_rate)
-            waveform = resampler(waveform)
-
-        # Clean up temp file
-        if temp_wav and os.path.exists(temp_wav):
-            os.remove(temp_wav)
-
-        return waveform, self.sample_rate
+        return self.audio_preprocessor.preprocess_audio(audio_path)
 
     def run_vad(self, waveform: torch.Tensor, sample_rate: int) -> List[Dict]:
         """
@@ -183,93 +129,18 @@ class NvidiaASR:
         Returns:
             List of speech segments with start/end times
         """
-        if not self.use_vad or self.vad_model is None:
+        if not self.use_vad or self.vad_processor is None:
             # Return full audio as single segment
             duration = waveform.shape[1] / sample_rate
             return [{'start': 0.0, 'end': duration, 'speech': True}]
 
-        print("Running Silero VAD...")
-
         try:
-            # Convert to numpy for Silero VAD
-            audio_numpy = waveform.squeeze(0).cpu().numpy()
-
-            # Get speech timestamps using Silero VAD
-            speech_timestamps = self.get_speech_timestamps(
-                audio_numpy,
-                self.vad_model,
-                sampling_rate=sample_rate,
-                threshold=self.vad_threshold
-            )
-
-            # Convert to our format
-            segments = []
-            for timestamp in speech_timestamps:
-                start_time = timestamp['start'] / sample_rate  # Convert from samples to seconds
-                end_time = timestamp['end'] / sample_rate
-                duration = end_time - start_time
-
-                if duration >= self.min_segment_duration:
-                    segments.append({
-                        'start': start_time,
-                        'end': end_time,
-                        'speech': True
-                    })
-
-            print(f"Silero VAD detected {len(segments)} speech segments")
-            return segments
-
+            return self.vad_processor.run_vad(waveform, sample_rate)
         except Exception as e:
-            print(f"Silero VAD failed: {e}, falling back to no VAD")
+            print(f"VAD processing failed: {e}, falling back to no VAD")
             # Fallback to full audio
             duration = waveform.shape[1] / sample_rate
             return [{'start': 0.0, 'end': duration, 'speech': True}]
-
-    def _frame_probs_to_segments(self, frame_probs: np.ndarray, sample_rate: int) -> List[Dict]:
-        """
-        Convert frame-level probabilities to speech segments.
-
-        Args:
-            frame_probs: Frame-level speech probabilities
-            sample_rate: Sample rate
-
-        Returns:
-            List of segments with start/end times and speech flags
-        """
-        # VAD frame rate is typically 100Hz (10ms frames) for MarbleNet
-        frame_duration = 0.01  # 10ms frames
-        segments = []
-
-        # Simple thresholding to find speech segments
-        speech_frames = frame_probs > self.vad_threshold
-
-        # Find contiguous speech regions
-        if len(speech_frames) > 0:
-            # Find transitions
-            diff = np.diff(speech_frames.astype(int))
-            start_indices = np.where(diff == 1)[0] + 1
-            end_indices = np.where(diff == -1)[0] + 1
-
-            # Handle edge cases
-            if speech_frames[0]:
-                start_indices = np.concatenate([[0], start_indices])
-            if speech_frames[-1]:
-                end_indices = np.concatenate([end_indices, [len(speech_frames)]])
-
-            # Create segments
-            for start_idx, end_idx in zip(start_indices, end_indices):
-                start_time = start_idx * frame_duration
-                end_time = end_idx * frame_duration
-                duration = end_time - start_time
-
-                if duration >= self.min_segment_duration:
-                    segments.append({
-                        'start': start_time,
-                        'end': end_time,
-                        'speech': True
-                    })
-
-        return segments
 
     def transcribe_segment(self, waveform: torch.Tensor, sample_rate: int) -> str:
         """
@@ -282,20 +153,7 @@ class NvidiaASR:
         Returns:
             Transcribed text
         """
-        self.load_models()
-
-        # Save temporary WAV for NeMo
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
-            temp_path = temp_file.name
-            torchaudio.save(temp_path, waveform, sample_rate)
-
-        try:
-            # Transcribe using NeMo ASR
-            transcription_output = self.asr_model.transcribe([temp_path])
-            transcription = transcription_output[0].text.strip()
-            return transcription
-        finally:
-            os.unlink(temp_path)
+        return self.asr_model.transcribe_segment(waveform, sample_rate)
 
     def transcribe_batch(self, audio_segments: List[Tuple[torch.Tensor, int]]) -> List[str]:
         """
@@ -307,31 +165,7 @@ class NvidiaASR:
         Returns:
             List of transcribed texts
         """
-        if not self.enable_batch_processing or len(audio_segments) == 1:
-            # Fall back to individual processing
-            return [self.transcribe_segment(waveform, sample_rate)
-                   for waveform, sample_rate in audio_segments]
-
-        self.load_models()
-
-        # Save all segments to temp files
-        temp_paths = []
-        try:
-            for waveform, sample_rate in audio_segments:
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
-                    temp_path = temp_file.name
-                    torchaudio.save(temp_path, waveform, sample_rate)
-                    temp_paths.append(temp_path)
-
-            # Batch transcribe
-            transcription_outputs = self.asr_model.transcribe(temp_paths)
-            transcriptions = [output.text.strip() for output in transcription_outputs]
-
-            return transcriptions
-        finally:
-            for path in temp_paths:
-                if os.path.exists(path):
-                    os.unlink(path)
+        return self.batch_processor.transcribe_segments_batch(audio_segments)
 
     def transcribe_file(self, audio_path: str) -> Dict:
         """
@@ -343,47 +177,7 @@ class NvidiaASR:
         Returns:
             Dict with transcription results
         """
-        print(f"Transcribing {audio_path}")
-
-        # Preprocess audio
-        waveform, sample_rate = self.preprocess_audio(audio_path)
-        duration = waveform.shape[1] / sample_rate
-
-        results = {
-            'file': audio_path,
-            'duration': duration,
-            'segments': []
-        }
-
-        if self.use_vad:
-            # Run VAD to find speech segments
-            speech_segments = self.run_vad(waveform, sample_rate)
-
-            # Transcribe each speech segment
-            for segment in speech_segments:
-                if segment['speech']:
-                    start_sample = int(segment['start'] * sample_rate)
-                    end_sample = int(segment['end'] * sample_rate)
-                    segment_waveform = waveform[:, start_sample:end_sample]
-
-                    transcription = self.transcribe_segment(segment_waveform, sample_rate)
-
-                    if transcription:  # Only include non-empty transcriptions
-                        results['segments'].append({
-                            'start': segment['start'],
-                            'end': segment['end'],
-                            'text': transcription
-                        })
-        else:
-            # Transcribe entire file
-            transcription = self.transcribe_segment(waveform, sample_rate)
-            results['segments'].append({
-                'start': 0.0,
-                'end': duration,
-                'text': transcription
-            })
-
-        return results
+        return self.batch_processor.transcribe_single_file(audio_path)
 
     def transcribe_files_batch(self, audio_paths: List[str]) -> List[Dict]:
         """
@@ -395,87 +189,15 @@ class NvidiaASR:
         Returns:
             List of transcription results
         """
-        results = []
-
-        if self.enable_batch_processing and len(audio_paths) > 1:
-            print(f"Batch transcribing {len(audio_paths)} files")
-
-            # Preprocess all files
-            processed_audios = []
-            file_info = []
-
-            for audio_path in audio_paths:
-                waveform, sample_rate = self.preprocess_audio(audio_path)
-                duration = waveform.shape[1] / sample_rate
-
-                if self.use_vad:
-                    # Run VAD on each file individually (VAD doesn't batch well)
-                    speech_segments = self.run_vad(waveform, sample_rate)
-
-                    for segment in speech_segments:
-                        if segment['speech']:
-                            start_sample = int(segment['start'] * sample_rate)
-                            end_sample = int(segment['end'] * sample_rate)
-                            segment_waveform = waveform[:, start_sample:end_sample]
-                            processed_audios.append((segment_waveform, sample_rate))
-                            file_info.append((audio_path, segment))
-                else:
-                    processed_audios.append((waveform, sample_rate))
-                    file_info.append((audio_path, {'start': 0.0, 'end': duration}))
-
-            # Batch transcribe all segments
-            if processed_audios:
-                transcriptions = self.transcribe_batch(processed_audios)
-
-                # Reconstruct results by file
-                file_results = {}
-                trans_idx = 0
-
-                for audio_path, segment_info in file_info:
-                    if audio_path not in file_results:
-                        file_results[audio_path] = {
-                            'file': audio_path,
-                            'duration': segment_info['end'] - segment_info['start'],
-                            'segments': []
-                        }
-
-                    if trans_idx < len(transcriptions):
-                        transcription = transcriptions[trans_idx]
-                        if transcription:
-                            file_results[audio_path]['segments'].append({
-                                'start': segment_info['start'],
-                                'end': segment_info['end'],
-                                'text': transcription
-                            })
-                        trans_idx += 1
-
-                results = list(file_results.values())
-        else:
-            # Process files individually
-            for audio_path in audio_paths:
-                result = self.transcribe_file(audio_path)
-                results.append(result)
-
-        return results
+        return self.batch_processor.transcribe_files_batch(audio_paths)
 
     def cleanup(self):
         """Aggressively clean up resources and free GPU memory."""
-        # Delete model references
-        if self.asr_model is not None:
-            del self.asr_model
-            self.asr_model = None
-
-        if self.vad_model is not None:
-            del self.vad_model
-            self.vad_model = None
-
-        # Clear Silero VAD utils
-        if hasattr(self, 'get_speech_timestamps'):
-            delattr(self, 'get_speech_timestamps')
-        if hasattr(self, 'read_audio'):
-            delattr(self, 'read_audio')
-        if hasattr(self, 'vad_utils'):
-            delattr(self, 'vad_utils')
+        # Clean up component modules
+        if self.asr_model:
+            self.asr_model.cleanup()
+        if self.vad_processor:
+            self.vad_processor.cleanup()
 
         # Aggressive GPU memory cleanup
         if torch.cuda.is_available():
