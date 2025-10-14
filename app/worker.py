@@ -69,6 +69,9 @@ def merge_consecutive_speaker_segments(segments):
 def run_inference(request_data):
     """Run inference in isolated subprocess with automatic cleanup"""
 
+    # Debug: Print received request_data
+    print(f"DEBUG: Received request_data: {request_data}")
+
     # Set environment for optimal performance
     os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512,garbage_collection_threshold:0.8,roundup_power2_divisions:1'
 
@@ -81,7 +84,6 @@ def run_inference(request_data):
         import nemo.collections.asr as nemo_asr
         from pydub import AudioSegment
         import torchaudio
-        from nvidia_asr import NvidiaASR
         from hybrid_diarization import HybridDiarization
 
         # Parse request
@@ -96,6 +98,9 @@ def run_inference(request_data):
         vad = request_data.get('vad')
         batch_size = request_data.get('batch_size')
         output_format = request_data.get('output_format')
+        hf_token = request_data.get('hf_token')
+        print(f"DEBUG: hf_token from request_data: {hf_token}")
+        print(f"DEBUG: HF_TOKEN env var: {os.getenv('HF_TOKEN')}")
 
         # Load configuration
         config = get_config()
@@ -172,7 +177,7 @@ def run_inference(request_data):
             if diarizer_key not in diarizer_instances:
                 diarizer_instances[diarizer_key] = HybridDiarization(
                     pyannote_model=config.diarization.pyannote_model,
-                    hf_token=config.diarization.hf_token or os.getenv("HF_TOKEN"),
+                    hf_token=hf_token or config.diarization.hf_token or os.getenv("HF_TOKEN"),
                     device=config.asr.device,
                     min_speakers=min_speakers,
                     max_speakers=max_speakers

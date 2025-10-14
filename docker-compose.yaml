@@ -1,30 +1,15 @@
-version: '3.8'
-
 services:
   diarasr:
     build: .
     ports:
-      - "127.0.0.1:8003:8000"  # Bind to localhost only for security
-    environment:
-      - HF_TOKEN=${HF_TOKEN}
-      - ASR_MODEL=nvidia/parakeet-tdt-0.6b-v3
-      - DIARIZATION_MODEL=nvidia/diar_streaming_sortformer_4spk-v2
+      - "8003:8003"
+    env_file:
+      - .env
     volumes:
-      - ./cache:/root/.cache/huggingface:ro  # Read-only volume
+      - ./cache:/home/app/.cache/huggingface:rw  # Writable cache directory
       - ./tmp:/app/tmp:rw  # Writable temp directory
-    read_only: true  # Enable read-only filesystem
-    security_opt:
-      - no-new-privileges:true  # Prevent privilege escalation
-      - apparmor:docker-default  # Apply AppArmor profile
-    cap_drop:
-      - ALL  # Drop all capabilities
-    cap_add:
-      - NET_BIND_SERVICE  # Allow binding to privileged ports if needed
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=100m  # Secure temporary filesystem
-      - /var/tmp:rw,noexec,nosuid,size=50m
     networks:
-      - secure_network  # Isolated network
+      - docknet
     deploy:
       resources:
         limits:
@@ -36,7 +21,7 @@ services:
               count: all
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8000/docs')"]
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8003/docs')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -55,6 +40,5 @@ services:
       - security-scan  # Only run when explicitly requested
 
 networks:
-  secure_network:
-    driver: bridge
-    internal: true  # No external access to the network
+  docknet:
+    external: true  # External network for inter-container communication

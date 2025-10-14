@@ -32,6 +32,7 @@
 - ✅ Documentation Updates: Memory bank updated for new architecture
 
 ## 🔄 REMAINING TASKS (Optional Enhancements)
+- [ ] Speed significantly reduced in docker. check why.
 
 ### Future Improvements
 - [ ] Model Updates: Monitor Pyannote/NVIDIA releases for improvements

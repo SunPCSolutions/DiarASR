@@ -9,7 +9,6 @@ import nemo.collections.asr as nemo_asr
 from pydub import AudioSegment
 import torchaudio
 from transformers import pipeline
-from nvidia_asr import NvidiaASR
 from config import get_config, load_api_keys
 from logging_config import get_app_logger, get_security_logger
 import multiprocessing
@@ -322,7 +321,8 @@ def process_audio(
     unload_models_after: bool = False,
     segment_resolution: Optional[str] = None,
     batch_size: Optional[int] = None,
-    output_format: Optional[str] = None
+    output_format: Optional[str] = None,
+    hf_token: Optional[str] = None
 ):
     """Run inference in subprocess for complete memory isolation"""
 
@@ -339,10 +339,14 @@ def process_audio(
         'vad': vad,
         'segment_resolution': segment_resolution,
         'batch_size': batch_size,
-        'output_format': output_format
+        'output_format': output_format,
+        'hf_token': hf_token or os.getenv('HF_TOKEN', '')  # Pass HF_TOKEN to worker
     }
 
     try:
+        # Debug: Print request_data being sent to worker
+        print(f"DEBUG: Sending request_data to worker: {request_data}")
+
         # Run inference in subprocess
         env = os.environ.copy()
         env['HF_TOKEN'] = os.getenv('HF_TOKEN', '')
@@ -533,7 +537,8 @@ async def transcribe_diarize(
             unload_models_after=unload_models_bool,  # This is now the converted boolean
             segment_resolution=segment_resolution,
             batch_size=batch_size,
-            output_format=output_format
+            output_format=output_format,
+            hf_token=hf_token
         )
         return result
     finally:

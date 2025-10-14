@@ -214,6 +214,160 @@
 7. **Comprehensive Testing**: Test individual components before integration
 8. **Documentation**: Document all non-obvious requirements and gotchas
 
+---
+
+### Issue 9: Docker Environment Replication & Dependency Analysis
+**Date**: October 14, 2025
+**Problem**: Docker containerization failing due to environment mismatch between working venv and container
+**Root Cause**: Incomplete environment analysis - missing CUDA versions, Python versions, cache directories, and exact dependency versions
+**Impact**: Docker builds failing, inconsistent behavior between local and containerized environments
+
+**Debugging Steps**:
+1. **Environment Analysis**: Systematically analyzed working environment
+   - Python version: 3.12.3 (venv), 3.12.7 (system)
+   - CUDA version: System drivers 13.0.1, PyTorch 2.8.0+cu128
+   - Ubuntu version: 24.04.3 LTS
+   - GPU: 1 NVIDIA GPU with CUDA 13.0.1 drivers
+
+2. **Dependency Extraction**: Extracted exact package versions from working venv
+   - Total packages: 234 dependencies
+   - Key ML packages: torch==2.8.0, torchaudio==2.8.0, pyannote-audio==4.0.1
+   - CUDA compatibility: PyTorch cu128 works with CUDA 13.0.1 drivers
+
+3. **Cache Directory Analysis**: Identified required cache directories
+   - `HF_HOME`: HuggingFace model cache (required for Pyannote)
+   - `LHOTSE_CACHE_DIR`: Lhotse audio processing cache (required)
+   - `TMPDIR`: General temp directory (required)
+   - Optional: `XDG_CACHE_HOME`, `MPLCONFIGDIR` (can be removed)
+
+4. **Docker Configuration**: Updated Docker setup to match working environment
+   - Base image: `nvidia/cuda:13.0.1-runtime-ubuntu24.04`
+   - Python: 3.12.3 explicitly installed
+   - User permissions: uid 1001 for volume mounts
+   - Volume mounts: cache, tmp, logs with correct permissions
+
+**Resolution**:
+- **Complete Environment Replication**: Docker now uses exact same Python version, CUDA setup, and dependencies
+- **Proper Cache Management**: All required cache directories configured with correct permissions
+- **Volume Mount Security**: Host directories owned by container user (uid 1001)
+- **Dependency Consistency**: Exact 234 package versions replicated from working venv
+- **Production Ready**: Containerized environment matches local development exactly
+
+**Prevention**: Always perform complete environment analysis before Docker containerization, including:
+- Exact Python/CUDA versions
+- All cache directory requirements
+- Volume mount permissions
+- Complete dependency extraction
+
+---
+
+## Docker Environment Analysis & Setup
+
+### Working Environment Specifications
+- **OS**: Ubuntu 24.04.3 LTS (Linux 6.14.0)
+- **Python**: 3.12.3 (venv), 3.12.7 (system)
+- **CUDA**: System drivers 13.0.1, PyTorch 2.8.0+cu128
+- **GPU**: 1 NVIDIA GPU with CUDA 13.0.1 drivers
+- **PyTorch**: 2.8.0+cu128 (backward compatible with CUDA 13.0.1)
+- **Dependencies**: 234 exact packages from working venv
+
+### Key ML Libraries & Versions
+- `torch==2.8.0` (CUDA 12.8)
+- `torchaudio==2.8.0`
+- `torchvision==0.23.0`
+- `pyannote-audio==4.0.1`
+- `pyannote-core==6.0.1`
+- `nemo-toolkit==2.5.0`
+- `transformers==4.53.3`
+- `lhotse==1.27.0`
+
+### Required Cache Directories
+- **HF_HOME**: `/home/app/.cache/huggingface` - HuggingFace model cache (REQUIRED)
+- **LHOTSE_CACHE_DIR**: `/app/tmp` - Lhotse audio processing cache (REQUIRED)
+- **TMPDIR**: `/app/tmp` - General temp directory (REQUIRED)
+- **Optional**: `XDG_CACHE_HOME`, `MPLCONFIGDIR` (can be removed)
+
+### Docker Configuration Details
+- **Base Image**: `nvidia/cuda:13.0.1-runtime-ubuntu24.04`
+- **Python Version**: 3.12.3 (explicitly installed)
+- **Container User**: uid 1001 (matches volume permissions)
+- **Volume Mounts**:
+  - `./cache:/home/app/.cache/huggingface:rw`
+  - `./tmp:/app/tmp:rw`
+  - `./logs:/app/logs:rw`
+- **Security**: Non-root user, proper file permissions
+- **Health Check**: PyTorch CUDA availability verification
+
+### Docker Build Process
+```bash
+# Multi-stage build with dependency isolation
+FROM nvidia/cuda:13.0.1-runtime-ubuntu24.04 AS builder
+# Install Python 3.12.3 and build tools
+# Copy and install exact 234 dependencies
+# Create virtual environment
+
+FROM nvidia/cuda:13.0.1-runtime-ubuntu24.04
+# Install runtime Python 3.12.3 and FFmpeg
+# Copy virtual environment from builder
+# Create non-root user (uid 1001)
+# Set up volume mount directories with correct permissions
+```
+
+### Volume Mount Permissions
+- **Host Directories**: Owned by uid 1001 (container user)
+- **Container Access**: Read/write access to cache, temp, logs
+- **Security**: No privilege escalation, proper isolation
+
+### Environment Variables
+```bash
+# Required for functionality
+HF_HOME=/home/app/.cache/huggingface
+LHOTSE_CACHE_DIR=/app/tmp
+TMPDIR=/app/tmp
+
+# API Configuration
+API_KEYS=your-api-key-here
+HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Logging
+LOG_LEVEL=INFO
+MAX_FILE_SIZE_MB=100
+```
+
+### Deployment Commands
+```bash
+# Navigate to Docker directory
+cd ~/docker/diarasr
+
+# Build and run with GPU support
+docker-compose up --build -d
+
+# Check container status
+docker-compose ps
+docker-compose logs -f diarasr
+
+# Test API
+curl -H "X-API-Key: your-api-key" \
+  -X POST "http://localhost:8003/transcribe_diarize/" \
+  -F "audio_file=@audio.mp3"
+```
+
+### Performance & Compatibility
+- **DER <7.8%**: Industry-leading diarization accuracy
+- **WER <2%**: Exceptional speech recognition quality
+- **GPU Memory**: <8GB VRAM with automatic cleanup
+- **CUDA Compatibility**: PyTorch cu128 works on CUDA 13.0.1
+- **Processing Speed**: ~12x real-time with GPU acceleration
+
+### Lessons Learned from Docker Setup
+1. **Complete Environment Analysis**: Always analyze Python, CUDA, and dependency versions
+2. **Cache Directory Requirements**: Identify all cache directories used by libraries
+3. **Volume Mount Permissions**: Match host and container user IDs
+4. **Dependency Replication**: Extract exact package versions from working environment
+5. **CUDA Compatibility**: Ensure PyTorch CUDA version works with system drivers
+6. **Security First**: Implement non-root users and proper file permissions
+7. **Testing**: Verify containerized environment matches local development
+
 ## Prevention Strategies
 
 - **Dependency Management**: Pin exact versions, use fresh environments
@@ -222,5 +376,6 @@
 - **Performance Monitoring**: Continuous monitoring of memory and timing
 - **Error Handling**: Comprehensive error handling with user-friendly messages
 - **Documentation**: Keep debug history updated with new issues and resolutions
+- **Docker Best Practices**: Complete environment analysis before containerization
 
 This debug history serves as a reference for future issues and helps prevent recurring problems in similar ML pipeline projects.

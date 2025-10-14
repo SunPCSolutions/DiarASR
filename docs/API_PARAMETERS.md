@@ -5,8 +5,8 @@ This document describes all configurable parameters for the **SECURE MODULAR ASR
 ## Overview
 
 The pipeline provides three main interfaces:
-1. **Pipeline Orchestrator** (`pipeline_orchestrator.py`) - Modular Python API
-2. **FastAPI Web Service** (`app.py`) - Secure REST API with authentication
+1. **Modular Python API** (`app/` directory) - Core processing modules with configuration
+2. **FastAPI Web Service** (`app/app.py`) - Secure REST API with authentication
 3. **n8n Integration** - Workflow automation with security features
 
 ## 🔒 ENTERPRISE SECURITY FEATURES
@@ -186,18 +186,25 @@ When `vad=true` (legacy):
 ### Python API Usage
 
 ```python
-from pipeline_orchestrator import PipelineConfig, process_audio_files
+from app.config import GlobalConfig, create_custom_config
 
 # Custom configuration with VAD tuning
-config = PipelineConfig(
-    asr_use_vad=True,
-    asr_vad_threshold=0.4,  # More sensitive
-    asr_min_segment_duration=0.1,  # Longer minimum segments
-    diarization_chunk_size=8,  # Larger chunks for better diarization
+config = create_custom_config(
+    use_vad=True,
+    vad_threshold=0.4,  # More sensitive
+    min_segment_duration=0.1,  # Longer minimum segments
     batch_size=32  # Larger batch for faster processing
 )
 
-results = process_audio_files('audio.mp3', config=config)
+# Use the modular components directly
+from app.hybrid_diarization import HybridDiarization
+from app.nvidia_asr import NvidiaASR
+
+diarizer = HybridDiarization(config.diarization)
+asr = NvidiaASR(config.asr)
+
+# Process audio with custom configuration
+results = diarizer.process_audio('audio.mp3', asr_model=asr)
 ```
 
 ### REST API Usage
@@ -300,7 +307,7 @@ curl -H "X-API-Key: your-api-key" \
 ### JSON Configuration Override
 
 ```python
-from config import create_custom_config
+from app.config import create_custom_config
 
 # Override specific parameters
 custom_config = create_custom_config(
