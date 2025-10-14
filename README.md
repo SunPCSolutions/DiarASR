@@ -115,4 +115,10 @@ MIT License - see LICENSE file for details.
 
 ## Acknowledgments
 
-Please cite the models and packages used - see full citations in [`docs/API_PARAMETERS.md`](docs/API_PARAMETERS.md).
+Our greatest appreciation to the creators of:
+- **Pyannote.audio** (Hervé Bredin et al.) for speaker diarization
+- **NVIDIA Parakeet TDT** (NVIDIA NeMo team) for ASR
+- **FastAPI** (Sebastián Ramírez) for the web framework
+- **PyTorch** (Facebook AI Research) for deep learning
+
+Please cite these works if used in your research. Full citations in [`docs/API_PARAMETERS.md`](docs/API_PARAMETERS.md).
