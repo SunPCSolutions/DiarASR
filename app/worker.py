@@ -12,6 +12,7 @@ import gc
 import logging
 from config import get_config
 from logging_config import get_worker_logger
+from temp_file_tracker import TempFileTracker, TempFileTrackerConfig
 
 # Completely suppress all stdout output except final JSON
 import os
@@ -72,8 +73,6 @@ def run_inference(request_data):
     # Debug: Print received request_data
     print(f"DEBUG: Received request_data: {request_data}")
 
-    # Set environment for optimal performance
-    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512,garbage_collection_threshold:0.8,roundup_power2_divisions:1'
 
     # Pre-load models for faster inference (cached within subprocess)
     asr_models = {}
@@ -105,199 +104,205 @@ def run_inference(request_data):
         # Load configuration
         config = get_config()
 
-        # Set defaults from config
-        if diarization_model is None:
-            if config.diarization.backend == "hybrid":
-                diarization_model = config.diarization.pyannote_model
-            else:
-                diarization_model = config.diarization.nvidia_model
-        asr_model = asr_model or config.asr.asr_model_name
-        language = language or config.asr.language
-        vad = vad if vad is not None else config.asr.use_vad
-        batch_size = batch_size or config.asr.batch_size
-        output_format = output_format or config.processing.output_format
+        # Create HIPAA-compliant TempFileTracker configuration for secure cleanup
+        # This ensures all temporary files are properly tracked and securely deleted
+        tracker_config = TempFileTrackerConfig(
+            max_retry_attempts=config.processing.max_retry_attempts,
+            enable_audit_logging=config.processing.enable_audit_logging,
+            cleanup_timeout_seconds=config.processing.cleanup_timeout_seconds
+        )
 
-        # Validate num_speakers parameter
-        if num_speakers is not None:
-            if not (1 <= num_speakers <= 4):
-                raise ValueError("num_speakers must be between 1 and 4 (Sortformer model limit)")
-            logger.info("Expected number of speakers: %d", num_speakers)
+        # Use TempFileTracker context manager for automatic HIPAA-compliant cleanup
+        # All temporary files created within this block will be securely deleted on exit
+        with TempFileTracker(tracker_config) as tracker:
+            # Set defaults from config
+            if diarization_model is None:
+                if config.diarization.backend == "hybrid":
+                    diarization_model = config.diarization.pyannote_model
+                else:
+                    diarization_model = config.diarization.nvidia_model
+            asr_model = asr_model or config.asr.asr_model_name
+            language = language or config.asr.language
+            vad = vad if vad is not None else config.asr.use_vad
+            batch_size = batch_size or config.asr.batch_size
+            output_format = output_format or config.processing.output_format
 
-        # Convert audio to 16kHz mono wav
-        audio = AudioSegment.from_file(audio_path)
-        audio = audio.set_channels(1).set_frame_rate(config.processing.sample_rate)
-        converted_path = audio_path.replace(os.path.splitext(audio_path)[1], "_converted.wav")
-        audio.export(converted_path, format=config.processing.audio_format)
+            # Validate num_speakers parameter
+            if num_speakers is not None:
+                if not (1 <= num_speakers <= 4):
+                    raise ValueError("num_speakers must be between 1 and 4 (Sortformer model limit)")
+                logger.info("Expected number of speakers: %d", num_speakers)
 
-        results = []
+            # Convert audio to 16kHz mono wav
+            audio = AudioSegment.from_file(audio_path)
+            audio = audio.set_channels(1).set_frame_rate(config.processing.sample_rate)
+            converted_path = tracker.create_temp_file("_converted.wav", purpose="audio_conversion")
+            audio.export(converted_path, format=config.processing.audio_format)
 
-        # Load audio for segmentation
-        waveform, sample_rate = torchaudio.load(converted_path)
+            results = []
 
-        # Initialize ASR components
-        asr_component = None
-        asr_model_instance = None
+            # Load audio for segmentation
+            waveform, sample_rate = torchaudio.load(converted_path)
 
-        # Preload ASR models for faster inference
-        if asr_model not in asr_models:
-            if asr_model == "nvidia/parakeet-ctc-1.1b":
-                asr_models[asr_model] = nemo_asr.models.EncDecCTCModelBPE.from_pretrained(asr_model)
-            elif asr_model == "nvidia/parakeet-tdt-1.1b":
-                # Try the faster TDT model variant
-                try:
+            # Initialize ASR components
+            asr_component = None
+            asr_model_instance = None
+
+            # Preload ASR models for faster inference
+            if asr_model not in asr_models:
+                if asr_model == "nvidia/parakeet-ctc-1.1b":
+                    asr_models[asr_model] = nemo_asr.models.EncDecCTCModelBPE.from_pretrained(asr_model)
+                elif asr_model == "nvidia/parakeet-tdt-1.1b":
+                    # Try the faster TDT model variant
+                    try:
+                        asr_models[asr_model] = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(asr_model)
+                    except Exception as e:
+                        logger.warning("Failed to load %s, falling back to tdt_ctc: %s", asr_model, str(e))
+                        asr_model = "nvidia/parakeet-tdt_ctc-1.1b"
+                        asr_models[asr_model] = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(asr_model)
+                elif asr_model == "nvidia/parakeet-tdt_ctc-1.1b":
                     asr_models[asr_model] = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(asr_model)
-                except Exception as e:
-                    logger.warning("Failed to load %s, falling back to tdt_ctc: %s", asr_model, str(e))
-                    asr_model = "nvidia/parakeet-tdt_ctc-1.1b"
-                    asr_models[asr_model] = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(asr_model)
-            elif asr_model == "nvidia/parakeet-tdt_ctc-1.1b":
-                asr_models[asr_model] = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(asr_model)
+                else:
+                    raise ValueError(f"Unsupported ASR model: {asr_model}")
+
+            # VAD functionality commented out - not required for current use case
+            # if vad:
+            #     # Use NvidiaASR with VAD support
+            #     asr_component = NvidiaASR(
+            #         asr_model_name=config.asr.asr_model_name,
+            #         device=config.asr.device,
+            #         use_vad=config.asr.use_vad,
+            #         vad_threshold=config.asr.vad_threshold,
+            #         min_segment_duration=config.asr.min_segment_duration,
+            #         batch_size=batch_size,
+            #         enable_batch_processing=config.asr.enable_batch_processing
+            #     )
+            # else:
+            # Use preloaded NeMo ASR model (VAD disabled for simplicity)
+            asr_model_instance = asr_models[asr_model]
+
+            if diarize:
+                # Use Pyannote-based hybrid diarization (only backend supported)
+                diarizer_key = f"hybrid_{min_speakers}_{max_speakers}"
+                if diarizer_key not in diarizer_instances:
+                    diarizer_instances[diarizer_key] = HybridDiarization(
+                        pyannote_model=config.diarization.pyannote_model,
+                        hf_token=hf_token or config.diarization.hf_token or os.getenv("HF_TOKEN"),
+                        device=config.asr.device,
+                        min_speakers=min_speakers,
+                        max_speakers=max_speakers
+                    )
+                diarizer = diarizer_instances[diarizer_key]
+                diarization_result = diarizer.diarize_audio(converted_path)
+                speaker_segments = diarization_result['segments']
+
+                # Apply speaker filtering if needed
+                if num_speakers and len(set(s['speaker'] for s in speaker_segments)) > num_speakers:
+                    speaker_segments = diarizer.filter_speakers(speaker_segments, num_speakers)
+
+                logger.debug("Parsed speaker segments type: %s", type(speaker_segments))
+                logger.debug("Parsed speaker segments length: %s", len(speaker_segments) if hasattr(speaker_segments, '__len__') else 'N/A')
+                if speaker_segments:
+                    logger.debug("First parsed segment: %s", speaker_segments[0])
+
+                for segment in speaker_segments:
+                    start_time = segment['start']
+                    end_time = segment['end']
+                    speaker = segment['speaker']
+                    segment_duration = end_time - start_time
+
+                    # Skip segments that are too short for ASR
+                    min_segment_duration = 0.2
+                    if segment_duration < min_segment_duration:
+                        logger.debug("Skipping %s segment (%.3fs) - too short for ASR", speaker, segment_duration)
+                        continue
+
+                    start_sample = int(start_time * sample_rate)
+                    end_sample = int(end_time * sample_rate)
+                    segment_waveform = waveform[:, start_sample:end_sample]
+
+                    # Transcribe segment
+                    try:
+                        # VAD functionality commented out - using direct NeMo ASR
+                        # if vad and asr_component is not None:
+                        #     transcription_result = asr_component.transcribe_segment(segment_waveform, sample_rate)
+                        #     if transcription_result and transcription_result.strip():
+                        #         results.append({
+                        #             'text': transcription_result.strip(),
+                        #             'start': start_time,
+                        #             'end': end_time,
+                        #             'speaker': speaker
+                        #         })
+                        # elif asr_model_instance is not None:
+                        if asr_model_instance is not None:
+                            # Save temporary segment for NeMo
+                            temp_file_path = tracker.create_temp_file(".wav", purpose="asr_segment")
+                            torchaudio.save(temp_file_path, segment_waveform, sample_rate)
+                            transcription_output = asr_model_instance.transcribe([temp_file_path])
+                            transcription = transcription_output[0].text.strip()
+                            if transcription and transcription.strip():
+                                results.append({
+                                    'text': transcription.strip(),
+                                    'start': start_time,
+                                    'end': end_time,
+                                    'speaker': speaker
+                                })
+                    except Exception as e:
+                        logger.error("Error transcribing segment: %s", str(e))
             else:
-                raise ValueError(f"Unsupported ASR model: {asr_model}")
-
-        # VAD functionality commented out - not required for current use case
-        # if vad:
-        #     # Use NvidiaASR with VAD support
-        #     asr_component = NvidiaASR(
-        #         asr_model_name=config.asr.asr_model_name,
-        #         device=config.asr.device,
-        #         use_vad=config.asr.use_vad,
-        #         vad_threshold=config.asr.vad_threshold,
-        #         min_segment_duration=config.asr.min_segment_duration,
-        #         batch_size=batch_size,
-        #         enable_batch_processing=config.asr.enable_batch_processing
-        #     )
-        # else:
-        # Use preloaded NeMo ASR model (VAD disabled for simplicity)
-        asr_model_instance = asr_models[asr_model]
-
-        if diarize:
-            # Use Pyannote-based hybrid diarization (only backend supported)
-            diarizer_key = f"hybrid_{min_speakers}_{max_speakers}"
-            if diarizer_key not in diarizer_instances:
-                diarizer_instances[diarizer_key] = HybridDiarization(
-                    pyannote_model=config.diarization.pyannote_model,
-                    hf_token=hf_token or config.diarization.hf_token or os.getenv("HF_TOKEN"),
-                    device=config.asr.device,
-                    min_speakers=min_speakers,
-                    max_speakers=max_speakers
-                )
-            diarizer = diarizer_instances[diarizer_key]
-            diarization_result = diarizer.diarize_audio(converted_path)
-            speaker_segments = diarization_result['segments']
-
-            # Apply speaker filtering if needed
-            if num_speakers and len(set(s['speaker'] for s in speaker_segments)) > num_speakers:
-                speaker_segments = diarizer.filter_speakers(speaker_segments, num_speakers)
-
-            logger.debug("Parsed speaker segments type: %s", type(speaker_segments))
-            logger.debug("Parsed speaker segments length: %s", len(speaker_segments) if hasattr(speaker_segments, '__len__') else 'N/A')
-            if speaker_segments:
-                logger.debug("First parsed segment: %s", speaker_segments[0])
-
-            for segment in speaker_segments:
-                start_time = segment['start']
-                end_time = segment['end']
-                speaker = segment['speaker']
-                segment_duration = end_time - start_time
-
-                # Skip segments that are too short for ASR
-                min_segment_duration = 0.2
-                if segment_duration < min_segment_duration:
-                    logger.debug("Skipping %s segment (%.3fs) - too short for ASR", speaker, segment_duration)
-                    continue
-
-                start_sample = int(start_time * sample_rate)
-                end_sample = int(end_time * sample_rate)
-                segment_waveform = waveform[:, start_sample:end_sample]
-
-                # Transcribe segment
-                try:
-                    # VAD functionality commented out - using direct NeMo ASR
-                    # if vad and asr_component is not None:
-                    #     transcription_result = asr_component.transcribe_segment(segment_waveform, sample_rate)
-                    #     if transcription_result and transcription_result.strip():
-                    #         results.append({
-                    #             'text': transcription_result.strip(),
-                    #             'start': start_time,
-                    #             'end': end_time,
-                    #             'speaker': speaker
-                    #         })
-                    # elif asr_model_instance is not None:
-                    if asr_model_instance is not None:
-                        # Save temporary segment for NeMo
-                        temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                        torchaudio.save(temp_file.name, segment_waveform, sample_rate)
-                        transcription_output = asr_model_instance.transcribe([temp_file.name])
-                        transcription = transcription_output[0].text.strip()
-                        os.unlink(temp_file.name)
-                        if transcription and transcription.strip():
+                # Just ASR without diarization
+                # VAD functionality commented out - using direct NeMo ASR
+                # if vad and asr_component is not None:
+                #     asr_result = asr_component.transcribe_file(converted_path)
+                #     if isinstance(asr_result, dict) and 'segments' in asr_result:
+                #         for segment in asr_result['segments']:
+                #             results.append({
+                #                 'text': segment['text'],
+                #                 'start': segment['start'],
+                #                 'end': segment['end'],
+                #                 'speaker': 'SPEAKER_00'
+                #             })
+                # elif asr_model_instance is not None:
+                if asr_model_instance is not None:
+                    transcription_output = asr_model_instance.transcribe([converted_path], timestamps=True)
+                    if hasattr(transcription_output[0], 'timestamp') and 'segment' in transcription_output[0].timestamp:
+                        for stamp in transcription_output[0].timestamp['segment']:
                             results.append({
-                                'text': transcription.strip(),
-                                'start': start_time,
-                                'end': end_time,
-                                'speaker': speaker
+                                'text': stamp['segment'],
+                                'start': stamp['start'],
+                                'end': stamp['end'],
+                                'speaker': 'SPEAKER_00'
                             })
-                except Exception as e:
-                    logger.error("Error transcribing segment: %s", str(e))
-        else:
-            # Just ASR without diarization
-            # VAD functionality commented out - using direct NeMo ASR
-            # if vad and asr_component is not None:
-            #     asr_result = asr_component.transcribe_file(converted_path)
-            #     if isinstance(asr_result, dict) and 'segments' in asr_result:
-            #         for segment in asr_result['segments']:
-            #             results.append({
-            #                 'text': segment['text'],
-            #                 'start': segment['start'],
-            #                 'end': segment['end'],
-            #                 'speaker': 'SPEAKER_00'
-            #             })
-            # elif asr_model_instance is not None:
-            if asr_model_instance is not None:
-                transcription_output = asr_model_instance.transcribe([converted_path], timestamps=True)
-                if hasattr(transcription_output[0], 'timestamp') and 'segment' in transcription_output[0].timestamp:
-                    for stamp in transcription_output[0].timestamp['segment']:
+                    else:
+                        duration = audio.duration_seconds
                         results.append({
-                            'text': stamp['segment'],
-                            'start': stamp['start'],
-                            'end': stamp['end'],
+                            'text': transcription_output[0].text,
+                            'start': 0.0,
+                            'end': duration,
                             'speaker': 'SPEAKER_00'
                         })
-                else:
-                    duration = audio.duration_seconds
-                    results.append({
-                        'text': transcription_output[0].text,
-                        'start': 0.0,
-                        'end': duration,
-                        'speaker': 'SPEAKER_00'
-                    })
 
-        # Merge consecutive segments from the same speaker
-        if diarize:
-            results = merge_consecutive_speaker_segments(results)
+            # Merge consecutive segments from the same speaker
+            if diarize:
+                results = merge_consecutive_speaker_segments(results)
 
-        # Sort results by timestamp
-        results_sorted = sorted(results, key=lambda x: x['start'])
+            # Sort results by timestamp
+            results_sorted = sorted(results, key=lambda x: x['start'])
 
-        # Clean up converted file
-        if os.path.exists(converted_path):
-            os.unlink(converted_path)
+            # Clean up components (don't delete cached models as they're reused)
+            if asr_component is not None:
+                asr_component.cleanup()
+                del asr_component
 
-        # Clean up components (don't delete cached models as they're reused)
-        if asr_component is not None:
-            asr_component.cleanup()
-            del asr_component
+            # Note: Don't delete cached diarizer instances as they're reused across calls
+            # They will be cleaned up when the subprocess exits
 
-        # Note: Don't delete cached diarizer instances as they're reused across calls
-        # They will be cleaned up when the subprocess exits
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
 
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-
-        return {"segments": results_sorted}
+            return {"segments": results_sorted}
 
     except Exception as e:
         import traceback

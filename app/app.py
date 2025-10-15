@@ -20,8 +20,6 @@ import time
 import re
 from collections import defaultdict
 
-# Set ultra-aggressive CUDA memory management - minimize caching
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128,garbage_collection_threshold:0.6,roundup_power2_divisions:1'
 
 app = FastAPI()
 
