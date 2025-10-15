@@ -69,6 +69,21 @@ The `GlobalConfig` class in `config.py` provides centralized configuration for t
 | `auto_cleanup` | bool | `True` | Automatically clean up temporary files | `true`/`false` |
 | `encrypt_temp_files` | bool | `False` | Encrypt temporary files during processing | `true`/`false` |
 | `enable_audit_logging` | bool | `True` | Enable audit logging for file operations | `true`/`false` |
+| `max_retry_attempts` | int | `3` | Maximum retry attempts for failed file deletions | 1-10 |
+| `cleanup_timeout_seconds` | int | `30` | Timeout for cleanup operations to prevent hanging | 10-300 |
+| `temp_file_retention_hours` | int | `24` | Hours to retain temporary files before cleanup | 1-168 |
+
+#### TempFileTracker Settings (HIPAA-Compliant Cleanup)
+
+| Parameter | Type | Default | Description | Valid Range |
+|-----------|------|---------|-------------|-------------|
+| `max_retry_attempts` | int | `3` | Maximum retry attempts for failed file deletions | 1-10 |
+| `base_retry_delay` | float | `0.1` | Base delay in seconds for exponential backoff | 0.01-1.0 |
+| `max_retry_delay` | float | `5.0` | Maximum delay between retries | 1.0-30.0 |
+| `audit_log_level` | str | `"INFO"` | Logging level for audit events | `"DEBUG"`, `"INFO"`, `"WARNING"`, `"ERROR"` |
+| `enable_audit_logging` | bool | `True` | Enable audit logging for file operations | `true`/`false` |
+| `temp_dir_permissions` | int | `0o700` | Permissions for temporary directories | Octal permission |
+| `cleanup_timeout_seconds` | int | `30` | Timeout for cleanup operations to prevent hanging | 10-300 |
 
 #### Processing Settings
 

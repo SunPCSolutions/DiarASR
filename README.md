@@ -1,315 +1,124 @@
-# DiarASR: Enterprise-Grade Secure ASR Diarization Pipeline
+# DiarASR
 
-A production-ready, HIPAA-compliant speech processing service that combines automatic speech recognition (ASR) with speaker diarization. Features enterprise-grade security, modular architecture, and comprehensive monitoring for medical and professional transcription workflows.
+Enterprise-grade secure ASR diarization pipeline combining automatic speech recognition with speaker diarization. HIPAA-compliant with modular architecture and comprehensive security.
 
-## 🚀 Features
+## Features
 
-- **🔒 Enterprise Security**: API key authentication, input validation, rate limiting, data protection
-- **🏗️ Modular Architecture**: Clean separation into 4 focused modules for maintainability
-- **🎯 High-Quality Processing**: DER <7.8%, WER <2% with perfect speaker attribution
-- **🩺 HIPAA Compliance**: Secure file handling, audit logging, encrypted temporary storage
-- **🧪 Comprehensive Testing**: 45+ security tests, fuzz testing, CI/CD integration
-- **📊 Real-time Monitoring**: Security event tracking, anomaly detection, automated scanning
-- **🐳 Production Ready**: Container-ready with security enhancements and scalability
-- **🔄 REST API**: FastAPI-based service with authentication and comprehensive validation
+- **🔒 Enterprise Security**: API key authentication, input validation, rate limiting
+- **🎯 High-Quality Processing**: DER ~8-20%, WER ~1-5% with robust speaker attribution
+- **🩺 HIPAA Compliance**: Secure file handling, audit logging, encrypted storage
+- **🏗️ Modular Architecture**: Clean separation into focused modules
+- **🐳 Production Ready**: Container-ready with security enhancements
 
-## 📋 Requirements
+## Requirements
 
-- **GPU**: NVIDIA GPU with CUDA 13.0+ support (minimum 8GB VRAM recommended)
+- **GPU**: NVIDIA GPU with CUDA 13.0+ (8GB+ VRAM recommended)
 - **OS**: Linux (Ubuntu 24.04+, CentOS 8+)
 - **Python**: 3.12+
-- **CUDA**: 13.0.1+ with cuDNN 9.10.2.21+
-- **Security**: API keys configured for authentication
-- **Storage**: Secure temporary directory access for encrypted file processing
+- **Models**: Access required for `nvidia/parakeet-tdt-1.1b` and `pyannote/speaker-diarization-community-1`
 
-## 🛠️ Installation
+## Installation
 
-1. **Clone the repository:**
-    ```bash
-    git clone https://gitlab.sunserv.org/backup/diarasr.git
-    cd diarasr
-    ```
-
-2. **Create virtual environment:**
-    ```bash
-    python3 -m venv .venv
-    source .venv/bin/activate
-    ```
-
-3. **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4. **Configure environment:**
-    ```bash
-    # Copy and edit environment configuration
-    cp .env.example .env 2>/dev/null || cp .env .env.backup
-    # Edit .env with your API keys and configuration
-    nano .env
-    ```
-
-5. **Set API keys for authentication:**
-    ```bash
-    # Required: Configure API keys for authentication
-    export API_KEYS="your-api-key-here"
-
-    # Optional: Configure HuggingFace token for diarization
-    export HF_TOKEN="hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-    ```
-
-## 🚀 Usage
-
-### Start the API Server
+### Python Installation
 
 ```bash
-# Development mode
-export API_KEYS="your-api-key-here"
-export HF_TOKEN="hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-uvicorn app:app --reload --host 0.0.0.0 --port 8003
-
-# Production mode
-export API_KEYS="prod-key-1,prod-key-2"
-export HF_TOKEN="hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-uvicorn app:app --host 0.0.0.0 --port 8003 --workers 4
-```
-
-### API Endpoint
-
-**POST** `/transcribe_diarize/`
-
-Transcribe audio files with speaker diarization and comprehensive security validation.
-
-**Authentication Required**: Include `X-API-Key` header with valid API key.
-
-#### Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `audio_file` | file | required | Audio file (MP3, WAV, FLAC, M4A, AAC) |
-| `diarize` | boolean | `true` | Enable speaker diarization |
-| `vad` | boolean | `true` | Enable voice activity detection |
-| `min_speakers` | integer | - | Minimum speakers for diarization |
-| `max_speakers` | integer | - | Maximum speakers for diarization |
-| `hf_token` | string | env | HuggingFace token for diarization |
-| `batch_size` | integer | `32` | Processing batch size |
-| `output_format` | string | `"json"` | Output format (`"json"`, `"txt"`, `"both"`) |
-| `unload_models_after` | boolean | `false` | Free VRAM after processing |
-
-#### Example Request
-
-```bash
-curl -H "X-API-Key: your-api-key-here" \
-  -X POST "http://localhost:8003/transcribe_diarize/" \
-  -F "audio_file=@meeting.mp3" \
-  -F "diarize=true" \
-  -F "vad=true" \
-  -F "min_speakers=2" \
-  -F "max_speakers=4" \
-  -F "hf_token=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-```
-
-#### Response Format
-
-```json
-{
-  "segments": [
-    {
-      "text": "Hello, how are you today?",
-      "start": 1.2,
-      "end": 3.8,
-      "speaker": "speaker_0"
-    },
-    {
-      "text": "I'm doing well, thank you.",
-      "start": 4.1,
-      "end": 6.2,
-      "speaker": "speaker_1"
-    }
-  ]
-}
-```
-
-## 🏗️ Architecture
-
-```
-FastAPI Security Layer (API Gateway)
-├── 🔒 API Key Authentication → Rate Limiting → Input Validation
-├── 🛡️ File Security → MIME/Magic Validation → Size Limits → Audit Logging
-├── 🔐 Modular ASR Processing (Isolated Subprocess)
-│   ├── audio_preprocessor.py → Audio validation & conversion
-│   ├── vad_processor.py → Voice activity detection (Silero VAD)
-│   ├── asr_model.py → Core ASR inference (Parakeet TDT-1.1B)
-│   └── batch_processor.py → Batch processing & results
-├── 🎯 Diarization Integration → Pyannote Community-1 (DER <7.8%)
-├── 📊 Security Audit Logging → HIPAA Compliant → Enterprise Production
-└── 🧪 Comprehensive Testing → 45+ Security Tests → CI/CD Integration
-```
-
-## 🔧 Configuration
-
-### Environment Variables (.env)
-```bash
-# API Authentication
-API_KEYS=your-api-key-here,another-key-here
-
-# Model Access
-HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
-# Logging & Security
-LOG_LEVEL=INFO
-MAX_FILE_SIZE_MB=100
-```
-
-### Application Configuration (config.py)
-Edit `config.py` to customize:
-
-- **🔒 Security Settings**: API keys, authentication, input validation, rate limiting
-- **🎯 Processing Parameters**: ASR models, VAD settings, batch sizes, speaker control
-- **🛡️ Data Protection**: File encryption, secure deletion, audit logging
-- **📊 Monitoring**: Security event tracking, metrics collection
-- **🐳 Container Settings**: Docker security, resource limits
-
-## 📊 Performance
-
-- **ASR Accuracy**: <2% WER with Parakeet TDT-1.1B model
-- **Diarization Quality**: DER <7.8% with Pyannote Community-1
-- **Speaker Attribution**: 100% accuracy in medical conversations
-- **Processing Speed**: ~12x real-time with GPU acceleration
-- **Memory Usage**: <8GB VRAM with automatic cleanup
-- **Security Overhead**: Minimal (<5%) performance impact
-
-## 🔒 Security & Compliance
-
-- **🔐 API Authentication**: Configurable API keys with header validation
-- **🛡️ Input Validation**: Multi-layer file validation (MIME, magic number, size limits)
-- **🚦 Rate Limiting**: DDoS protection (10 requests/minute per IP)
-- **🔒 Data Protection**: Encrypted temporary files, secure deletion (3 overwrites)
-- **📋 HIPAA Compliance**: Audit logging, data sanitization, secure processing
-- **🔍 Monitoring**: Real-time security event tracking and anomaly detection
-- **🧪 Testing**: 45+ security tests covering all components
-
-## 🐳 Quick Docker Installation
-
-### Prerequisites
-- Docker with NVIDIA GPU support (`nvidia-docker2`)
-- NVIDIA GPU with CUDA 13.0+ (minimum 8GB VRAM)
-
-### One-Command Setup
-```bash
-# Clone and navigate to Docker directory
-git clone https://gitlab.sunserv.org/backup/diarasr.git
-cd diarasr
-
-# Configure environment (edit .env with your API keys)
+git clone https://github.com/SunPCSolutions/DiarASR.git
+cd DiarASR
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r app/requirements.txt
 cp .env.example .env
-nano .env  # Add your API_KEYS and HF_TOKEN
+# Edit .env with your API keys and HuggingFace token
+```
 
-# Build and run with Docker Compose
+### Docker Installation
+
+```bash
+git clone https://github.com/SunPCSolutions/DiarASR.git
+cd DiarASR
+cp .env.example .env
+# Edit .env with your API keys and HuggingFace token
 docker-compose up --build -d
-
-# Check status
-docker-compose ps
-docker-compose logs -f diarasr
 ```
 
-### Manual Docker Commands
-```bash
-# Build image
-docker build -t diarasr:latest .
+## Usage
 
-# Run container
-docker run -d \
-  --name diarasr \
-  --gpus all \
-  -p 8003:8003 \
-  --env-file .env \
-  -v $(pwd)/cache:/home/app/.cache/huggingface:rw \
-  -v $(pwd)/tmp:/app/tmp:rw \
-  -v $(pwd)/logs:/app/logs:rw \
-  diarasr:latest
+### Python API
+
+```python
+import os
+from app.app import process_audio
+
+os.environ['HF_TOKEN'] = 'your-huggingface-token'
+os.environ['API_KEYS'] = 'your-api-key'
+
+result = process_audio(
+    audio_path='audio.wav',
+    diarize=True,
+    min_speakers=2,
+    max_speakers=4
+)
+
+for segment in result['segments']:
+    print(f"{segment['speaker']}: {segment['text']}")
 ```
 
-### Test API
+### REST API
+
 ```bash
+# Start server
+export API_KEYS="your-api-key"
+export HF_TOKEN="hf_xxx"
+uvicorn app:app --host 0.0.0.0 --port 8003
+
+# Make request
 curl -H "X-API-Key: your-api-key" \
   -X POST "http://localhost:8003/transcribe_diarize/" \
-  -F "audio_file=@test.mp3"
+  -F "audio_file=@audio.wav"
 ```
 
-## 🐳 Docker Deployment
+See [`docs/API_PARAMETERS.md`](docs/API_PARAMETERS.md) for complete API documentation.
 
-### Dockerfile with Security Enhancements
-```dockerfile
-FROM nvidia/cuda:13.0.1-base-ubuntu24.04
+## Model Access
 
-# Security: Create non-root user
-RUN useradd --create-home --shell /bin/bash diarasr
+**Required HuggingFace Access:**
+- [nvidia/parakeet-tdt-1.1b](https://huggingface.co/nvidia/parakeet-tdt-1.1b) - ASR model
+- [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) - Diarization model
 
-# Install dependencies with security updates
-RUN apt-get update && apt-get upgrade -y && \
-    apt-get install -y python3 python3-pip && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+Set `HF_TOKEN` environment variable with your HuggingFace token.
 
-# Install Python packages
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+## Performance
 
-# Copy application with secure permissions
-COPY --chown=diarasr:diarasr . /app
-WORKDIR /app
+- **ASR Accuracy**: ~1-5% WER (Parakeet TDT-1.1B)
+- **Diarization Quality**: ~8-20% DER (Pyannote Community-1)
+- **Processing Speed**: ~12x real-time with GPU
+- **Memory Usage**: <8GB VRAM
 
-# Security: Restrictive permissions
-RUN chmod 755 /app && \
-    chmod 644 /app/*.py && \
-    chmod 600 /app/.env
+## Security
 
-# Switch to non-root user
-USER diarasr
+- API key authentication
+- Multi-layer input validation
+- Rate limiting (10 req/min)
+- Encrypted temporary storage
+- HIPAA-compliant processing
+- Comprehensive audit logging
 
-EXPOSE 8003
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8003", "--workers", "4"]
-```
+## Documentation
 
-## 📚 Documentation
+- [`docs/API_PARAMETERS.md`](docs/API_PARAMETERS.md) - Complete API reference
+- [`memory-bank/systemPatterns.md`](memory-bank/systemPatterns.md) - Architecture details
+- [`memory-bank/techContext.md`](memory-bank/techContext.md) - Technical context
 
-- **API Parameters**: `docs/API_PARAMETERS.md` - Complete API reference with security features
-- **Architecture**: `memory-bank/systemPatterns.md` - Secure modular system patterns
-- **Technical Context**: `memory-bank/techContext.md` - Technology stack and decisions
-- **Progress**: `memory-bank/progress.md` - Development phases and achievements
-- **Security Testing**: `tests/` - Comprehensive security test suites
-- **Monitoring**: `scripts/security_monitor.py` - Real-time security monitoring
+## License
 
-## 🤝 Contributing
+MIT License - see LICENSE file for details.
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a merge request
+## Acknowledgments
 
-## 📄 License
+Our greatest appreciation to the creators of:
+- **Pyannote.audio** (Hervé Bredin et al.) for speaker diarization
+- **NVIDIA Parakeet TDT** (NVIDIA NeMo team) for ASR
+- **FastAPI** (Sebastián Ramírez) for the web framework
+- **PyTorch** (Facebook AI Research) for deep learning
 
-This project is proprietary software. See LICENSE file for details.
-
-## 🆘 Support
-
-For support or questions, please contact the development team.
-
-## 🧪 Testing & Quality Assurance
-
-### Security Testing Suite
-- **45+ Unit Tests**: Comprehensive validation coverage
-- **Fuzz Testing**: Audio file malformation resistance
-- **Integration Tests**: End-to-end security validation
-- **CI/CD Pipeline**: Automated security scanning
-
-### Quality Metrics
-- **DER**: <7.8% (Diarization Error Rate)
-- **WER**: <2% (Word Error Rate)
-- **Security**: HIPAA-compliant processing
-- **Performance**: Minimal security overhead
-
----
-
-**Status**: 🔒 **ENTERPRISE PRODUCTION READY** - HIPAA-compliant secure ASR diarization with modular architecture, comprehensive security, and enterprise-grade quality assurance.
+Please cite these works if used in your research.

@@ -31,7 +31,11 @@
 - ✅ Performance Impact: Minimal overhead while maintaining quality
 - ✅ Documentation Updates: Memory bank updated for new architecture
 
-## 🔄 REMAINING TASKS (Optional Enhancements)
+## 🔄 REMAINING TASKS (Critical Issues)
+
+### Critical Fixes Required
+- [ ] Resolve the filename issue causing 500 errors with complex medical filenames (FOUND: n8n MIME type detection bug - FIXED by adding Content-Type header)
+- [ ] Implement automatic deletion of temporary files after processing completion to prevent disk space issues
 - [ ] Speed significantly reduced in docker. check why.
 
 ### Future Improvements

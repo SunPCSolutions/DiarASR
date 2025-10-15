@@ -126,15 +126,16 @@ mypy                     # Type checking
 
 #### Data Protection
 - **In-Memory Processing**: Audio never written to disk unencrypted
-- **Secure Temporary Files**: Zero-overwrite deletion
+- **Secure Temporary Files**: Zero-overwrite deletion via TempFileTracker
 - **Permission Restrictions**: 0o700 temporary directories
 - **No Data Persistence**: All intermediate files cleaned up
 
 #### HIPAA Compliance
 - **Encryption**: TLS 1.3 for data in transit
 - **Access Control**: API authentication required
-- **Audit Logging**: All processing operations logged
+- **Audit Logging**: All processing operations logged via TempFileTracker
 - **Data Minimization**: Only necessary data retained
+- **Secure Cleanup**: Automatic HIPAA-compliant file deletion with retry mechanisms
 
 ### Deployment Architecture
 

@@ -55,6 +55,27 @@ with secure_temp_dir() as temp_dir:
 **Benefits**: Prevents data leakage, ensures cleanup on failures
 **Implementation**: Custom SecureTempManager with file sanitization
 
+### TempFileTracker Cleanup Pattern (HIPAA-COMPLIANT)
+```python
+# HIPAA-compliant temporary file management with audit logging
+from temp_file_tracker import TempFileTracker, TempFileTrackerConfig
+
+config = TempFileTrackerConfig(
+    max_retry_attempts=3,
+    enable_audit_logging=True,
+    cleanup_timeout_seconds=30
+)
+
+with TempFileTracker(config) as tracker:
+    # Create and track temporary files
+    temp_file = tracker.create_temp_file('.wav', purpose='audio_segment')
+    # Process with temp_file...
+    # Automatic secure cleanup on exit with retry logic
+```
+
+**Benefits**: HIPAA compliance, audit trails, reliable cleanup, minimal performance overhead
+**Implementation**: Context manager with exponential backoff retry, comprehensive logging, graceful error handling
+
 ### Configuration-Driven Architecture
 ```python
 @dataclass

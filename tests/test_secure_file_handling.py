@@ -283,8 +283,12 @@ class TestAuditLogging(unittest.TestCase):
         # Check audit logging settings
         self.assertTrue(config.enable_audit_logging)
         self.assertEqual(config.audit_log_file, "logs/audit.log")
-        self.assertEqual(config.retention_hours, 24)
+        self.assertEqual(config.temp_file_retention_hours, 24)
         self.assertTrue(config.auto_retention_cleanup)
+
+        # Check TempFileTracker cleanup parameters
+        self.assertEqual(config.max_retry_attempts, 3)
+        self.assertEqual(config.cleanup_timeout_seconds, 30)
 
     def test_secure_delete_configuration(self):
         """Test secure deletion configuration."""
