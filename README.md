@@ -36,6 +36,9 @@ cp .env.example .env
 ```bash
 git clone https://github.com/SunPCSolutions/DiarASR.git
 cd DiarASR
+# Create required directories and set ownership for container user (1001:1001)
+mkdir -p cache tmp
+sudo chown -R 1001:1001 cache tmp
 cp .env.example .env
 # Edit .env with your API keys and HuggingFace token
 docker-compose up --build -d

@@ -431,7 +431,7 @@ DEFAULT_CONFIG = GlobalConfig(
         mask_sensitive_data=True
     ),
     security=SecurityConfig(
-        enable_api_key_auth=False,  # Temporarily disable API key authentication for testing
+        enable_api_key_auth=True,  # Enable API key authentication
         api_keys=[],  # Should be set via environment variable or config override
         api_key_header="X-API-Key",
         cors_enabled=True,
