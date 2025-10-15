@@ -34,11 +34,12 @@
 ## 🔄 REMAINING TASKS (Critical Issues)
 
 ### Critical Fixes Required
-- [ ] Resolve the filename issue causing 500 errors with complex medical filenames (FOUND: n8n MIME type detection bug - FIXED by adding Content-Type header)
-- [ ] Implement automatic deletion of temporary files after processing completion to prevent disk space issues
-- [ ] Speed significantly reduced in docker. check why.
+- [x] Resolve the filename issue causing 500 errors with complex medical filenames (FOUND: n8n MIME type detection bug - FIXED by adding Content-Type header)
+- [x] Implement automatic deletion of temporary files after processing completion to prevent disk space issues
+- [x] Speed significantly reduced in docker. check why.
 
 ### Future Improvements
+- [ ] improve punctuation
 - [ ] Model Updates: Monitor Pyannote/NVIDIA releases for improvements
 - [ ] Multi-language Support: Extend beyond English if needed
 - [ ] Performance Monitoring: Add detailed GPU memory and latency tracking
