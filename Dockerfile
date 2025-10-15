@@ -48,6 +48,13 @@ ENV PYTHONPATH="/app"
 # Copy application code
 COPY app/ /app/
 
+# Set Hugging Face cache directory to mounted volume location
+ENV HF_HOME=/home/app/.cache/huggingface
+
+# Pre-load ML models during build to cache them in Hugging Face cache directory
+# This avoids download delays during runtime and ensures models are available
+RUN cd /app && python preload_models.py
+
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash --user-group --uid 1001 app \
     && chown -R app:app /opt/venv
