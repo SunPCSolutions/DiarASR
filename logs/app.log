@@ -1,0 +1,55 @@
+2025-10-15 06:53:24 - app - INFO - TempFileTracker session started
+2025-10-15 06:53:24 - app - INFO - Created temporary file: [REDACTED] (purpose: test_file)
+2025-10-15 06:53:24 - app - INFO - Starting cleanup of 1 files and 0 directories
+2025-10-15 06:53:24 - app - INFO - Successfully deleted file: [REDACTED] (purpose: test_file, size: 9 bytes, access_count: 1)
+2025-10-15 06:53:24 - app - INFO - TempFileTracker session ended. Cleanup successful: True
+2025-10-15 06:53:43 - app - INFO - TempFileTracker session started
+2025-10-15 06:53:43 - app - INFO - Created temporary file: [REDACTED] (purpose: audio_segment)
+2025-10-15 06:53:43 - app - INFO - Created temporary file: [REDACTED] (purpose: metadata)
+2025-10-15 06:53:43 - app - INFO - Created secure temporary directory: [REDACTED]
+2025-10-15 06:53:43 - app - INFO - Tracking existing file: [REDACTED]/nested_file.txt (purpose: nested_temp, size: 14 bytes)
+2025-10-15 06:53:43 - app - INFO - Starting cleanup of 3 files and 1 directories
+2025-10-15 06:53:43 - app - INFO - Successfully deleted file: [REDACTED] (purpose: audio_segment, size: 1000 bytes, access_count: 1)
+2025-10-15 06:53:43 - app - INFO - Successfully deleted file: [REDACTED] (purpose: metadata, size: 20 bytes, access_count: 1)
+2025-10-15 06:53:43 - app - INFO - Successfully deleted file: [REDACTED]/nested_file.txt (purpose: nested_temp, size: 14 bytes, access_count: 0)
+2025-10-15 06:53:43 - app - INFO - Successfully deleted directory: [REDACTED]
+2025-10-15 06:53:43 - app - INFO - TempFileTracker session ended. Cleanup successful: True
+2025-10-15 06:56:40 - app - INFO - TempFileTracker session started
+2025-10-15 06:56:40 - app - INFO - Created temporary file: [REDACTED] (purpose: audio_segment)
+2025-10-15 06:56:40 - app - INFO - Created temporary file: [REDACTED] (purpose: metadata)
+2025-10-15 06:56:40 - app - INFO - Created secure temporary directory: [REDACTED]
+2025-10-15 06:56:40 - app - INFO - Tracking existing file: [REDACTED]/nested_file.txt (purpose: nested_temp, size: 14 bytes)
+2025-10-15 06:56:40 - app - INFO - Starting cleanup of 3 files and 1 directories
+2025-10-15 06:56:40 - app - INFO - Successfully deleted file: [REDACTED] (purpose: audio_segment, size: 1000 bytes, access_count: 1)
+2025-10-15 06:56:40 - app - INFO - Successfully deleted file: [REDACTED] (purpose: metadata, size: 20 bytes, access_count: 1)
+2025-10-15 06:56:40 - app - INFO - Successfully deleted file: [REDACTED]/nested_file.txt (purpose: nested_temp, size: 14 bytes, access_count: 0)
+2025-10-15 06:56:40 - app - INFO - Successfully deleted directory: [REDACTED]
+2025-10-15 06:56:40 - app - INFO - TempFileTracker session ended. Cleanup successful: True
+2025-10-15 07:01:29 - app - INFO - TempFileTracker session started
+2025-10-15 07:01:29 - app - INFO - Created temporary file: [REDACTED] (purpose: audio_segment)
+2025-10-15 07:01:29 - app - INFO - Created temporary file: [REDACTED] (purpose: metadata)
+2025-10-15 07:01:29 - app - INFO - Starting cleanup of 2 files and 0 directories
+2025-10-15 07:01:29 - app - INFO - Successfully deleted file: [REDACTED] (purpose: audio_segment, size: 0 bytes, access_count: 0)
+2025-10-15 07:01:29 - app - INFO - Successfully deleted file: [REDACTED] (purpose: metadata, size: 0 bytes, access_count: 0)
+2025-10-15 07:01:29 - app - INFO - TempFileTracker session ended. Cleanup successful: True
+2025-10-15 07:06:22 - app - INFO - TempFileTracker session started
+2025-10-15 07:06:22 - app - INFO - Created temporary file: [REDACTED] (purpose: audio_segment)
+2025-10-15 07:06:22 - app - INFO - Created temporary file: [REDACTED] (purpose: metadata)
+2025-10-15 07:06:22 - app - INFO - Starting cleanup of 2 files and 0 directories
+2025-10-15 07:06:22 - app - INFO - Successfully deleted file: [REDACTED] (purpose: audio_segment, size: 0 bytes, access_count: 0)
+2025-10-15 07:06:22 - app - INFO - Successfully deleted file: [REDACTED] (purpose: metadata, size: 0 bytes, access_count: 0)
+2025-10-15 07:06:22 - app - INFO - TempFileTracker session ended. Cleanup successful: True
+2025-10-15 07:14:02 - app - INFO - Created secure temporary directory: [REDACTED]
+2025-11-01 11:41:51 - app - INFO - TempFileTracker session started
+2025-11-01 11:41:51 - app - INFO - Starting cleanup of 0 files and 0 directories
+2025-11-01 11:41:51 - app - INFO - TempFileTracker session ended. Cleanup successful: True
+2025-11-01 11:44:01 - app - INFO - TempFileTracker session started
+2025-11-01 11:44:02 - app - INFO - Created temporary file: [REDACTED] (purpose: audio_conversion)
+2025-11-01 11:44:31 - app - INFO - Starting cleanup of 1 files and 0 directories
+2025-11-01 11:44:31 - app - INFO - Successfully deleted file: [REDACTED] (purpose: audio_conversion, size: 0 bytes, access_count: 0)
+2025-11-01 11:44:31 - app - INFO - TempFileTracker session ended. Cleanup successful: True
+2025-11-01 11:47:21 - app - INFO - TempFileTracker session started
+2025-11-01 11:47:23 - app - INFO - Created temporary file: [REDACTED] (purpose: audio_conversion)
+2025-11-01 11:47:39 - app - INFO - Starting cleanup of 1 files and 0 directories
+2025-11-01 11:47:39 - app - INFO - Successfully deleted file: [REDACTED] (purpose: audio_conversion, size: 0 bytes, access_count: 0)
+2025-11-01 11:47:39 - app - INFO - TempFileTracker session ended. Cleanup successful: True
