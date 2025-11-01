@@ -182,6 +182,7 @@ def run_inference(request_data):
             asr_model_instance = asr_models[asr_model]
 
             if diarize:
+                logger.info("Diarization enabled - loading Pyannote diarization model and performing speaker segmentation")
                 # Use Pyannote-based hybrid diarization (only backend supported)
                 diarizer_key = f"hybrid_{min_speakers}_{max_speakers}"
                 if diarizer_key not in diarizer_instances:
@@ -250,37 +251,60 @@ def run_inference(request_data):
                     except Exception as e:
                         logger.error("Error transcribing segment: %s", str(e))
             else:
-                # Just ASR without diarization
-                # VAD functionality commented out - using direct NeMo ASR
-                # if vad and asr_component is not None:
-                #     asr_result = asr_component.transcribe_file(converted_path)
-                #     if isinstance(asr_result, dict) and 'segments' in asr_result:
-                #         for segment in asr_result['segments']:
-                #             results.append({
-                #                 'text': segment['text'],
-                #                 'start': segment['start'],
-                #                 'end': segment['end'],
-                #                 'speaker': 'SPEAKER_00'
-                #             })
-                # elif asr_model_instance is not None:
+                # Just ASR without diarization - skip ALL diarization processing including model loading
+                logger.info("Diarization disabled (diarize=false) - performing ASR only without speaker segmentation or diarization models")
+
                 if asr_model_instance is not None:
-                    transcription_output = asr_model_instance.transcribe([converted_path], timestamps=True)
-                    if hasattr(transcription_output[0], 'timestamp') and 'segment' in transcription_output[0].timestamp:
-                        for stamp in transcription_output[0].timestamp['segment']:
-                            results.append({
-                                'text': stamp['segment'],
-                                'start': stamp['start'],
-                                'end': stamp['end'],
-                                'speaker': 'SPEAKER_00'
-                            })
-                    else:
-                        duration = audio.duration_seconds
-                        results.append({
-                            'text': transcription_output[0].text,
-                            'start': 0.0,
-                            'end': duration,
-                            'speaker': 'SPEAKER_00'
-                        })
+                    try:
+                        # Try to get timestamps, but handle cases where they're not available
+                        transcription_output = asr_model_instance.transcribe([converted_path], timestamps=True)
+
+                        # Check if timestamps are available and properly structured
+                        if (hasattr(transcription_output[0], 'timestamp') and
+                            transcription_output[0].timestamp and
+                            isinstance(transcription_output[0].timestamp, dict) and
+                            'segment' in transcription_output[0].timestamp and
+                            transcription_output[0].timestamp['segment']):
+
+                            # Use timestamp segments if available
+                            for stamp in transcription_output[0].timestamp['segment']:
+                                if 'segment' in stamp and 'start' in stamp and 'end' in stamp:
+                                    results.append({
+                                        'text': stamp['segment'].strip(),
+                                        'start': float(stamp['start']),
+                                        'end': float(stamp['end']),
+                                        'speaker': 'SPEAKER_00'
+                                    })
+                        else:
+                            # Fallback: single segment with full audio duration
+                            logger.info("Timestamps not available, using single segment for entire audio")
+                            duration = audio.duration_seconds
+                            full_text = transcription_output[0].text.strip() if hasattr(transcription_output[0], 'text') else ""
+                            if full_text:
+                                results.append({
+                                    'text': full_text,
+                                    'start': 0.0,
+                                    'end': duration,
+                                    'speaker': 'SPEAKER_00'
+                                })
+
+                    except Exception as e:
+                        logger.warning("Error getting timestamps from ASR model, falling back to basic transcription: %s", str(e))
+                        try:
+                            # Last resort: basic transcription without timestamps
+                            basic_output = asr_model_instance.transcribe([converted_path])
+                            duration = audio.duration_seconds
+                            basic_text = basic_output[0].text.strip() if hasattr(basic_output[0], 'text') else ""
+                            if basic_text:
+                                results.append({
+                                    'text': basic_text,
+                                    'start': 0.0,
+                                    'end': duration,
+                                    'speaker': 'SPEAKER_00'
+                                })
+                        except Exception as e2:
+                            logger.error("Failed to perform basic ASR transcription: %s", str(e2))
+                            raise Exception(f"ASR transcription failed: {str(e2)}")
 
             # Merge consecutive segments from the same speaker
             if diarize:
