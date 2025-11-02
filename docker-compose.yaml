@@ -6,8 +6,8 @@ services:
     env_file:
       - .env
     volumes:
-      - ./cache:/home/app/.cache/huggingface:rw  # Writable cache directory
-      - ./tmp:/app/tmp:rw  # Writable temp directory
+      - cache:/home/app/.cache/huggingface:rw  # Writable cache directory (named volume)
+      - tmp:/app/tmp:rw  # Writable temp directory (named volume)
     networks:
       - docknet
     deploy:
@@ -38,6 +38,10 @@ services:
       - diarasr
     profiles:
       - security-scan  # Only run when explicitly requested
+
+volumes:
+  cache:  # Named volume for Hugging Face model cache
+  tmp:    # Named volume for temporary files
 
 networks:
   docknet:

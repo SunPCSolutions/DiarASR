@@ -1,5 +1,9 @@
 # DiarASR
 
+<div style="color: red; font-weight: bold; border: 2px solid red; padding: 10px; margin: 10px 0; background-color: #ffe6e6;">
+⚠️ IMPORTANT NOTICE: HuggingFace models are downloaded on first API request. Due to potential network issues or HF download instability, the first few attempts might fail. After successful model download and caching, subsequent requests will work reliably.
+</div>
+
 Enterprise-grade secure ASR diarization pipeline combining automatic speech recognition with speaker diarization. HIPAA-compliant with modular architecture and comprehensive security.
 
 ## Features
