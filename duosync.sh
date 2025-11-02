@@ -30,8 +30,10 @@ if [ "$CURRENT_BRANCH" != "$MAIN_BRANCH" ]; then
     check_status "git checkout $MAIN_BRANCH"
 fi
 
-# 2. Push the main branch to GitLab (origin)
-echo "1/3: Pushing $MAIN_BRANCH to $GITLAB_REMOTE (GitLab)..."
+# 2. Sync the main branch with GitLab (origin)
+echo "1/3: Syncing $MAIN_BRANCH with $GITLAB_REMOTE (GitLab)..."
+git pull $GITLAB_REMOTE $MAIN_BRANCH
+check_status "git pull $GITLAB_REMOTE $MAIN_BRANCH"
 git push $GITLAB_REMOTE $MAIN_BRANCH
 check_status "git push $GITLAB_REMOTE $MAIN_BRANCH"
 echo "GitLab sync complete."
