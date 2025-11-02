@@ -32,8 +32,8 @@ fi
 
 # 2. Sync the main branch with GitLab (origin)
 echo "1/3: Syncing $MAIN_BRANCH with $GITLAB_REMOTE (GitLab)..."
-git pull $GITLAB_REMOTE $MAIN_BRANCH
-check_status "git pull $GITLAB_REMOTE $MAIN_BRANCH"
+git pull --no-rebase $GITLAB_REMOTE $MAIN_BRANCH
+check_status "git pull --no-rebase $GITLAB_REMOTE $MAIN_BRANCH"
 git push $GITLAB_REMOTE $MAIN_BRANCH
 check_status "git push $GITLAB_REMOTE $MAIN_BRANCH"
 echo "GitLab sync complete."
