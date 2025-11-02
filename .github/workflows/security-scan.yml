@@ -1,0 +1,139 @@
+name: Security Scan
+
+on:
+  # Run on pushes to main branch
+  push:
+    branches: [ main, master ]
+  # Run on pull requests
+  pull_request:
+    branches: [ main, master ]
+  # Allow manual triggering
+  workflow_dispatch:
+  # Run weekly on Sundays
+  schedule:
+    - cron: '0 2 * * 0'  # Every Sunday at 2 AM UTC
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run security vulnerability scan
+      id: security-scan
+      run: |
+        echo "Running comprehensive security scan..."
+        python scripts/security_scan.py --report security_report.txt
+
+    - name: Upload security report
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: security-scan-report
+        path: security_report.txt
+
+    - name: Check for vulnerabilities
+      id: check-vulnerabilities
+      run: |
+        if grep -q "VULNERABLE" security_report.txt; then
+          echo "vulnerabilities_found=true" >> $GITHUB_OUTPUT
+        else
+          echo "vulnerabilities_found=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Comment on PR with security report
+      if: github.event_name == 'pull_request' && steps.check-vulnerabilities.outputs.vulnerabilities_found == 'true'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const report = fs.readFileSync('security_report.txt', 'utf8');
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '## 🚨 Security Scan Results\n\n' +
+                  'Security vulnerabilities were detected in this PR:\n\n' +
+                  '```\n' + report + '\n```\n\n' +
+                  'Please review and address these security issues before merging.'
+          });
+
+    - name: Fail on vulnerabilities
+      if: steps.check-vulnerabilities.outputs.vulnerabilities_found == 'true'
+      run: |
+        echo "❌ Security vulnerabilities found!"
+        echo "Review the security scan report above for details."
+        exit 1
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Dependency Review
+      uses: actions/dependency-review-action@v3
+      with:
+        # Optional: add configuration for allowed licenses
+        allow-licenses: >
+          MIT,
+          Apache-2.0,
+          BSD-2-Clause,
+          BSD-3-Clause,
+          ISC,
+          CC0-1.0,
+          Unlicense
+        # Fail on critical vulnerabilities
+        fail-on-severity: critical
+
+  codeql-analysis:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'python' ]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v2
+      with:
+        languages: ${{ matrix.language }}
+        # Add security queries
+        queries: security-and-quality
+
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v2
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+      with:
+        category: "/language:${{matrix.language}}"
