@@ -1,75 +1,57 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Git
+# Version control
 .git
 .gitignore
-
-# Docker
-Dockerfile*
-docker-compose*
-.dockerignore
-
-# Logs
-*.log
-logs/
-
-# Test files and outputs
-test.mp3
-output*.txt
-*.wav
-*.mp3
-*.flac
+.github
 
 # Documentation
 README.md
 docs/
+*.md
+
+# Development files
+.env
+.env.example
+debug_search.log
+
+# Test files and directories
+tests/
+test.mp3
+Shortness of Breath History OSCE Guide UKMLA CPSA PLAB 2 - YouTu.mp3
+*.mp3
+
+# Logs
+logs/
+app/logs/
+*.log
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS files
+.DS_Store
+Thumbs.db
 
 # Temporary files
 tmp/
 temp/
+.cache/
+
+# Project specific
+memory-bank/
+.roo/
+duosync.sh
+TODO
