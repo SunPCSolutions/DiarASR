@@ -14,17 +14,16 @@ from config import get_config
 from logging_config import get_worker_logger
 from temp_file_tracker import TempFileTracker, TempFileTrackerConfig
 
-# Completely suppress all stdout output except final JSON
+# Completely suppress all stdout output (including C/Rust libraries) except final JSON
 import os
 import sys
-from contextlib import redirect_stdout, redirect_stderr
 
-# Create a null device for suppressing output
-null_device = open(os.devnull, 'w')
+# Save original stdout file descriptor
+original_stdout_fd = os.dup(1)
 
-# Redirect all stdout to null device initially
-old_stdout = sys.stdout
-sys.stdout = null_device
+# Redirect stdout to /dev/null at OS level to capture output from C/Rust libraries
+devnull_fd = os.open(os.devnull, os.O_WRONLY)
+os.dup2(devnull_fd, 1)
 
 # Initialize secure logging
 logger = get_worker_logger()
@@ -335,13 +334,25 @@ def run_inference(request_data):
         return {"error": str(e)}
 
 if __name__ == "__main__":
-    # Read request data from stdin
-    request_data = json.loads(sys.stdin.read())
-    result = run_inference(request_data)
+    try:
+        # Read request data from stdin
+        # Read from original stdin (fd 0) to be safe, though sys.stdin should work
+        input_data = sys.stdin.read()
+        if not input_data:
+            raise ValueError("No input data received")
+            
+        request_data = json.loads(input_data)
+        result = run_inference(request_data)
+    except Exception as e:
+        import traceback
+        logger.error(f"Top-level worker error: {e}\n{traceback.format_exc()}")
+        result = {"error": str(e)}
 
-    # Restore stdout temporarily for JSON output only
-    sys.stdout = old_stdout
-    null_device.close()
+    # Restore stdout for JSON output
+    sys.stdout.flush()
+    os.dup2(original_stdout_fd, 1)
+    os.close(original_stdout_fd)
+    os.close(devnull_fd)
 
     # Write ONLY the JSON result to stdout (no other output)
     print(json.dumps(result))

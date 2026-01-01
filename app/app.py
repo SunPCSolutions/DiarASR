@@ -381,13 +381,16 @@ def process_audio(
             raise HTTPException(status_code=500, detail=error_msg)
 
         if 'error' in worker_result:
+            logger.error(f"Worker returned error: {worker_result['error']}")
             raise HTTPException(status_code=500, detail=worker_result['error'])
 
         return worker_result
 
     except subprocess.TimeoutExpired:
+        logger.error("Worker process timed out after 600s")
         raise HTTPException(status_code=500, detail="Inference timed out")
     except Exception as e:
+        logger.error(f"Subprocess execution failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Subprocess error: {str(e)}")
 
 # Memory management now handled by subprocess isolation
