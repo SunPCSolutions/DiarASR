@@ -94,6 +94,7 @@ def validate_magic_number(file_content: bytes) -> None:
         b'fLaC': 'flac', # FLAC
         b'\x00\x00\x00\x20ftypM4A': 'm4a',  # M4A (truncated for check)
         b'\x00\x00\x00\x18ftypM4A': 'm4a',  # M4A variant
+        b'\x00\x00\x00\x1cftypM4A': 'm4a',  # M4A variant (Android/Standard)
     }
 
     # Check first few bytes
@@ -104,6 +105,11 @@ def validate_magic_number(file_content: bytes) -> None:
         if file_start.startswith(signature):
             is_valid_audio = True
             break
+
+    # Fallback check for any MP4/M4A based container (ftyp at offset 4)
+    if not is_valid_audio and len(file_content) >= 8:
+        if file_content[4:8] == b'ftyp':
+            is_valid_audio = True
 
     # Additional check for MP3 without ID3
     if not is_valid_audio and len(file_content) >= 2:
