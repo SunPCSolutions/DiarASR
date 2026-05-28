@@ -7,7 +7,7 @@ Enterprise-grade secure ASR diarization pipeline combining automatic speech reco
 ## Features
 
 - **🔒 Enterprise Security**: API key authentication, input validation, rate limiting
-- **🎯 High-Quality Processing**: DER ~8-20%, WER ~1-5% with robust speaker attribution
+- **🎯 High-Quality Processing**: DER ~5-8%, WER ~1-5% with robust speaker attribution
 - **🩺 HIPAA Compliance**: Secure file handling, audit logging, encrypted storage
 - **🏗️ Modular Architecture**: Clean separation into focused modules
 - **🐳 Production Ready**: Container-ready with security enhancements
