@@ -108,8 +108,6 @@ Set `HF_TOKEN` environment variable with your HuggingFace token.
 ## Documentation
 
 - [`docs/API_PARAMETERS.md`](docs/API_PARAMETERS.md) - Complete API reference
-- [`memory-bank/systemPatterns.md`](memory-bank/systemPatterns.md) - Architecture details
-- [`memory-bank/techContext.md`](memory-bank/techContext.md) - Technical context
 
 ## License
 
