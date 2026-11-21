@@ -1,0 +1,3 @@
+# Install with --no-deps into an isolated target after the main requirements.
+nemo-toolkit @ https://github.com/NVIDIA-NeMo/Speech/archive/cf724ac337d1ebc7d0dda1e23fb80916f52927a5.tar.gz
+lhotse==2.0.0a6

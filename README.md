@@ -17,7 +17,7 @@ Enterprise-grade secure ASR diarization pipeline combining automatic speech reco
 - **GPU**: BF16-capable NVIDIA GPU (Ampere or newer) with a CUDA-compatible driver
 - **OS**: Linux (Ubuntu 24.04+, CentOS 8+)
 - **Python**: 3.12+
-- **Models**: Local English ASR uses `omi-health/omi-med-stt-v1`. Optional speaker diarization requires access to `pyannote/speaker-diarization-community-1`.
+- **Models**: Local English ASR uses `omi-health/omi-med-stt-v1`. Optional speaker diarization uses `nvidia/Nemotron-3-Diarization`.
 
 ## Installation
 
@@ -84,9 +84,9 @@ See [`docs/API_PARAMETERS.md`](docs/API_PARAMETERS.md) for complete API document
 ## Model Access
 
 - [Omi Med STT v1](https://huggingface.co/omi-health/omi-med-stt-v1) by Omi Health is the only ASR model. Its CC BY 4.0 weights are derived from NVIDIA Parakeet TDT 0.6B v2. Inference runs locally with the pinned Omi CUDA runtime, not Omi's hosted API.
-- [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) supplies speaker turn timestamps when `diarize=true`. For `diarize=false`, the transcript is returned as one full-duration segment; Omi's runtime does not produce word timestamps.
+- [NVIDIA Nemotron 3 Diarization](https://huggingface.co/nvidia/Nemotron-3-Diarization) supplies anonymous speaker labels and turn timestamps when `diarize=true`. It detects up to eight speakers. For `diarize=false`, the transcript is returned as one full-duration segment; Omi's runtime does not produce word timestamps.
 
-Set `HF_TOKEN` for the gated pyannote model. Review transcripts before clinical use.
+The Docker image isolates Nemotron's newer NeMo runtime from Omi's pinned runtime. Both checkpoints are cached locally after the first download; `HF_TOKEN` is optional. Review transcripts before clinical use.
 
 ## Performance
 
@@ -114,7 +114,7 @@ MIT License - see LICENSE file for details.
 ## Acknowledgments
 
 Our greatest appreciation to the creators of:
-- **Pyannote.audio** (Hervé Bredin et al.) for speaker diarization
+- **NVIDIA** for Nemotron 3 Diarization (OpenMDW 1.1)
 - **Omi Health** for Omi Med STT v1 and **NVIDIA NeMo** for the underlying ASR tooling
 - **FastAPI** (Sebastián Ramírez) for the web framework
 - **PyTorch** (Facebook AI Research) for deep learning

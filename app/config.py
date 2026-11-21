@@ -182,28 +182,9 @@ class ASRConfig:
 class DiarizationConfig:
     """Configuration for Speaker Diarization parameters."""
 
-    # Backend selection
-    backend: str = "hybrid"  # "hybrid" (Pyannote), "nvidia" (Sortformer), "auto"
-
-    # Pyannote settings (for hybrid backend)
-    pyannote_model: str = "pyannote/speaker-diarization-community-1"
-    hf_token: Optional[str] = field(default_factory=lambda: get_secure_env_var('HF_TOKEN'))
-
-    # NVIDIA settings (for nvidia backend)
-    nvidia_model: str = "nvidia/diar_streaming_sortformer_4spk-v2"
-
-    # Common settings
-    device: str = "auto"  # Device: "auto", "cpu", "cuda"
-    num_speakers: Optional[int] = None  # Expected number of speakers (1-4)
-    min_speakers: Optional[int] = None  # Minimum speakers (Pyannote)
-    max_speakers: Optional[int] = None  # Maximum speakers (Pyannote)
-
-    # Legacy NVIDIA streaming parameters (for nvidia backend)
-    chunk_size: int = 6  # Chunk size for streaming processing
-    right_context: int = 7  # Right context for streaming
-    fifo_size: int = 188  # FIFO buffer size
-    update_period: int = 144  # Update period for streaming
-    speaker_cache_size: int = 188  # Speaker cache size
+    num_speakers: Optional[int] = None
+    min_speakers: Optional[int] = None
+    max_speakers: Optional[int] = None
 
 
 @dataclass
@@ -379,19 +360,6 @@ DEFAULT_CONFIG = GlobalConfig(
         min_segment_duration=0.05,
         device="auto",
         enable_batch_processing=True
-    ),
-    diarization=DiarizationConfig(
-        backend="hybrid",  # Use Pyannote by default for better quality
-        pyannote_model="pyannote/speaker-diarization-community-1",
-        hf_token=None,  # Will be set from environment
-        nvidia_model="nvidia/diar_streaming_sortformer_4spk-v2",
-        device="auto",
-        # Legacy NVIDIA parameters (used if backend="nvidia")
-        chunk_size=6,
-        right_context=7,
-        fifo_size=188,
-        update_period=144,
-        speaker_cache_size=188
     ),
     streaming=StreamingConfig(
         enable_streaming=False,  # As requested - streaming config

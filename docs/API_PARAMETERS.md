@@ -38,10 +38,9 @@ The `GlobalConfig` class in `config.py` provides centralized configuration for t
 
 | Parameter | Type | Default | Description | Valid Range |
 |-----------|------|---------|-------------|-------------|
-| `hf_token` | str | Environment | HuggingFace token for Pyannote models | Valid HF token |
-| `num_speakers` | int | - | Expected number of speakers (1-4) | 1-4 |
-| `min_speakers` | int | - | Minimum speakers for diarization | 1-4 |
-| `max_speakers` | int | - | Maximum speakers for diarization | 1-4 |
+| `num_speakers` | int | - | Expected detected count | 1-8 |
+| `min_speakers` | int | - | Minimum acceptable detected count | 1-8 |
+| `max_speakers` | int | - | Maximum acceptable detected count | 1-8 |
 
 #### ASR Settings
 
@@ -113,11 +112,12 @@ Main transcription and diarization endpoint with comprehensive security validati
 | `audio_file` | file | - | Audio file to process (MP3, WAV, FLAC, M4A, AAC) | Yes |
 | `language` | str | `"en"` | English only (`en` or `english`) | No |
 | `diarize` | bool | `true` | Enable speaker diarization | No |
-| `min_speakers` | int | - | Minimum number of speakers for diarization | No |
-| `max_speakers` | int | - | Maximum number of speakers for diarization | No |
-| `hf_token` | str | Environment | HuggingFace token for Pyannote diarization | No* |
+| `num_speakers` | int | - | Expected detected count (1-8) | No |
+| `min_speakers` | int | - | Minimum acceptable detected count (1-8) | No |
+| `max_speakers` | int | - | Maximum acceptable detected count (1-8) | No |
+| `hf_token` | str | Environment | Optional Hugging Face token for Nemotron downloads | No |
 
-*Required for diarization if not set in environment
+Nemotron detects speakers automatically. Speaker-count fields validate its output; they do not force a count or drop speaker turns. Invalid or unmet bounds return HTTP 422.
 
 #### Processing Parameters
 
@@ -157,7 +157,7 @@ The system implements **intelligent segmentation** that respects diarization bou
 
 ## ASR Backend
 
-Omi Med STT v1 is the only ASR backend and supports English only. There is no model selector or fallback. The Omi runtime controls ASR batching and does not use the API's legacy `batch_size` or `vad` inputs. With diarization enabled, timestamps are pyannote speaker-turn boundaries. Without diarization, the transcript is returned in one segment spanning the recording.
+Omi Med STT v1 is the only ASR backend and supports English only. There is no model selector or fallback. The Omi runtime controls ASR batching. With diarization enabled, timestamps are Nemotron 3 speaker-turn boundaries and overlapping turns may both be present. Without diarization, the transcript is returned in one segment spanning the recording.
 
 ## Configuration Examples
 
@@ -312,7 +312,7 @@ All security-related events are logged with detailed audit trails including:
 
 ## Performance Considerations
 
-GPU memory and elapsed time depend on the recording and whether pyannote is enabled. Models are unloaded when the request's worker exits.
+GPU memory and elapsed time depend on the recording and whether Nemotron diarization is enabled. The Nemotron subprocess exits before Omi loads, so the models do not have to share GPU memory.
 
 
 ## Security Best Practices

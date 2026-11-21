@@ -6,6 +6,7 @@ import os
 import tempfile
 from config import get_config, load_api_keys
 from logging_config import get_app_logger, get_security_logger
+from nemotron_diarization import speaker_bounds
 import json
 import subprocess
 import sys
@@ -310,7 +311,6 @@ def process_audio(
     num_speakers: Optional[int] = None,
     min_speakers: Optional[int] = None,
     max_speakers: Optional[int] = None,
-    diarization_model: Optional[str] = None,
     language: Optional[str] = None,
     diarize: bool = True,
     unload_models_after: bool = False,
@@ -326,7 +326,6 @@ def process_audio(
         'num_speakers': num_speakers,
         'min_speakers': min_speakers,
         'max_speakers': max_speakers,
-        'diarization_model': diarization_model,
         'language': language,
         'diarize': diarize,
         'segment_resolution': segment_resolution,
@@ -370,12 +369,17 @@ def process_audio(
             logger.error("Failed to parse worker output: %s", error_msg)
             raise HTTPException(status_code=500, detail=error_msg)
 
+        if 'speaker_count_error' in worker_result:
+            raise HTTPException(status_code=422, detail=worker_result['speaker_count_error'])
+
         if 'error' in worker_result:
             logger.error(f"Worker returned error: {worker_result['error']}")
             raise HTTPException(status_code=500, detail=worker_result['error'])
 
         return worker_result
 
+    except HTTPException:
+        raise
     except subprocess.TimeoutExpired:
         logger.error("Worker process timed out after 600s")
         raise HTTPException(status_code=500, detail="Inference timed out")
@@ -397,7 +401,6 @@ async def transcribe_diarize(
     hf_token: Optional[str] = Form(None),
     output_format: Optional[str] = Form(None),
     segment_resolution: Optional[str] = Form(None),
-    diarization_model: Optional[str] = Form(None),
     save_to_file: Optional[str] = Form(None)
   ):
     # Sanitize and validate filename
@@ -430,10 +433,14 @@ async def transcribe_diarize(
         output_format = sanitize_parameter(output_format, "output_format")
     if segment_resolution:
         segment_resolution = sanitize_parameter(segment_resolution, "segment_resolution")
-    if diarization_model:
-        diarization_model = sanitize_parameter(diarization_model, "diarization_model")
     if save_to_file:
         save_to_file = sanitize_parameter(save_to_file, "save_to_file")
+
+    if diarize:
+        try:
+            speaker_bounds(num_speakers, min_speakers, max_speakers)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # Validate MIME type
     if audio_file.content_type:
@@ -509,7 +516,6 @@ async def transcribe_diarize(
             num_speakers=num_speakers,
             min_speakers=min_speakers,
             max_speakers=max_speakers,
-            diarization_model=diarization_model,
             language=language,
             diarize=diarize,
             unload_models_after=unload_models_bool,  # This is now the converted boolean

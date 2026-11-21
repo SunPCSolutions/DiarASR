@@ -1,7 +1,7 @@
 # Single-stage build for diarasr API image with global Python package installation
 FROM nvidia/cuda:13.0.1-runtime-ubuntu24.04
 
-# Install Python 3.12.3 (dev includes runtime), build tools, and FFmpeg
+# Keep Python headers and build tools for Nemotron's Triton kernel compilation.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12-dev \
     python3-pip \
@@ -24,9 +24,12 @@ ENV PYTHONPATH="/app"
 # Copy requirements and install Python packages globally
 COPY app/requirements.txt .
 RUN python3 -m pip install --no-cache-dir -r requirements.txt --break-system-packages \
-    && apt-get remove -y python3.12-dev \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/*
+    && python3 -m pip check
+
+# Use Omi's shared CUDA dependencies but keep incompatible NeMo/Lhotse versions separate.
+COPY app/requirements-nemotron.txt .
+RUN python3 -m pip install --no-cache-dir --no-deps --target /opt/nemotron -r requirements-nemotron.txt
+ENV NEMOTRON_PYTHONPATH=/opt/nemotron
 
 # Copy application code
 COPY app/ /app/

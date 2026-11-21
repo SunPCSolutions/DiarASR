@@ -5,9 +5,11 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 from config import get_config
 from logging_config import get_worker_logger
+from nemotron_diarization import MODEL as DIARIZATION_MODEL, speaker_bounds
 from temp_file_tracker import TempFileTracker, TempFileTrackerConfig
 
 
@@ -37,9 +39,6 @@ def run_inference(request_data):
 
     config = get_config()
     diarize = request_data.get('diarize', True)
-    num_speakers = request_data.get('num_speakers')
-    if num_speakers is not None and not 1 <= num_speakers <= 4:
-        raise ValueError('num_speakers must be between 1 and 4')
 
     tracker_config = TempFileTrackerConfig(
         max_retry_attempts=config.processing.max_retry_attempts,
@@ -57,19 +56,30 @@ def run_inference(request_data):
             raise RuntimeError('Could not decode audio to 16 kHz mono WAV')
 
         if diarize:
-            from hybrid_diarization import HybridDiarization
+            counts = [request_data.get(key) for key in ('num_speakers', 'min_speakers', 'max_speakers')]
+            if all(count is None for count in counts):
+                counts = [config.diarization.num_speakers, config.diarization.min_speakers, config.diarization.max_speakers]
+            min_speakers, max_speakers = speaker_bounds(*counts)
+            env = os.environ.copy()
+            runtime_path = env.get('NEMOTRON_PYTHONPATH', '/opt/nemotron')
+            if not Path(runtime_path, 'nemo').is_dir():
+                raise RuntimeError('Nemotron runtime is missing; rebuild the Docker image')
+            env['PYTHONPATH'] = os.pathsep.join(filter(None, (runtime_path, env.get('PYTHONPATH'))))
+            if request_data.get('hf_token'):
+                env['HF_TOKEN'] = request_data['hf_token']
 
-            diarizer = HybridDiarization(
-                pyannote_model=config.diarization.pyannote_model,
-                hf_token=request_data.get('hf_token') or config.diarization.hf_token or os.getenv('HF_TOKEN'),
-                device=config.asr.device,
-                min_speakers=request_data.get('min_speakers'),
-                max_speakers=request_data.get('max_speakers'),
+            logger.info('Diarizing with %s', DIARIZATION_MODEL)
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).with_name('nemotron_diarization.py')), converted_path],
+                env=env, stdout=subprocess.PIPE, text=True, timeout=300,
             )
-            speaker_segments = diarizer.diarize_audio(converted_path)['segments']
-            if num_speakers and len({s['speaker'] for s in speaker_segments}) > num_speakers:
-                speaker_segments = diarizer.filter_speakers(speaker_segments, num_speakers)
-            del diarizer
+            if result.returncode:
+                raise RuntimeError('Nemotron 3 Diarization failed; see worker logs')
+            speaker_segments = json.loads(result.stdout)
+            count = len({segment['speaker'] for segment in speaker_segments})
+            if ((min_speakers is not None and count < min_speakers)
+                    or (max_speakers is not None and count > max_speakers)):
+                return {'speaker_count_error': f'Nemotron detected {count} speaker(s), outside the requested bounds'}
 
             paths, metadata = [], []
             with sf.SoundFile(converted_path) as recording:
@@ -97,7 +107,7 @@ def run_inference(request_data):
 
 
 def main():
-    # NeMo, pyannote and native libraries can write to stdout; reserve it for JSON.
+    # NeMo and native libraries can write to stdout; reserve it for JSON.
     with os.fdopen(os.dup(1), 'w') as result_stream, open(os.devnull, 'w') as devnull:
         os.dup2(devnull.fileno(), 1)
         try:

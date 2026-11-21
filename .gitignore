@@ -114,6 +114,7 @@ dmypy.json
 
 # Project specific
 /text.md
+/text-nemotron.md
 cache/
 logs/
 tmp/
