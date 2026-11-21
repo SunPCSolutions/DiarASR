@@ -1,358 +1,112 @@
 #!/usr/bin/env python3
-"""
-PyTorch Inference Worker - Runs in subprocess for memory isolation
-"""
+"""Run local Omi transcription in a per-request subprocess."""
 
-import os
-import sys
 import json
-import tempfile
-import torch
-import gc
-import logging
+import os
+import subprocess
+import sys
+
 from config import get_config
 from logging_config import get_worker_logger
 from temp_file_tracker import TempFileTracker, TempFileTrackerConfig
 
-# Completely suppress all stdout output (including C/Rust libraries) except final JSON
-import os
-import sys
 
-# Save original stdout file descriptor
-original_stdout_fd = os.dup(1)
-
-# Redirect stdout to /dev/null at OS level to capture output from C/Rust libraries
-devnull_fd = os.open(os.devnull, os.O_WRONLY)
-os.dup2(devnull_fd, 1)
-
-# Initialize secure logging
+OMI_MODEL = "omi-health/omi-med-stt-v1"
 logger = get_worker_logger()
 
+
 def merge_consecutive_speaker_segments(segments):
-    """
-    Merge consecutive segments from the same speaker to ensure diarization-controlled segmentation.
-
-    Args:
-        segments: List of transcription segments with speaker labels
-
-    Returns:
-        List of merged segments where consecutive segments from same speaker are combined
-    """
-    if not segments:
-        return segments
-
-    # Sort by start time
-    sorted_segments = sorted(segments, key=lambda x: x['start'])
-
-    merged_segments = []
-    current_segment = sorted_segments[0].copy()
-
-    for next_segment in sorted_segments[1:]:
-        # Check if this segment is consecutive from the same speaker
-        if (next_segment['speaker'] == current_segment['speaker'] and
-            abs(next_segment['start'] - current_segment['end']) < 0.5):  # 500ms gap tolerance
-            # Merge segments
-            current_segment['end'] = next_segment['end']
-            current_segment['text'] += ' ' + next_segment['text']
+    merged = []
+    for segment in sorted(segments, key=lambda item: item['start']):
+        if (merged and merged[-1]['speaker'] == segment['speaker']
+                and abs(segment['start'] - merged[-1]['end']) < 0.5):
+            merged[-1]['end'] = max(merged[-1]['end'], segment['end'])
+            merged[-1]['text'] += ' ' + segment['text']
         else:
-            # Start new segment
-            merged_segments.append(current_segment)
-            current_segment = next_segment.copy()
-
-    # Add the last segment
-    merged_segments.append(current_segment)
-
-    logger.info("Merged %d segments into %d diarization-controlled segments", len(sorted_segments), len(merged_segments))
-    return merged_segments
+            merged.append(segment.copy())
+    return merged
 
 
 def run_inference(request_data):
-    """Run inference in isolated subprocess with automatic cleanup"""
+    import soundfile as sf
+    from omi_stt.nemo_runtime import transcribe_nemo
 
-    # Debug: Print received request_data
-    print(f"DEBUG: Received request_data: {request_data}")
+    language = request_data.get('language') or 'en'
+    if language.lower() not in {'en', 'english'}:
+        raise ValueError('Omi Med STT only supports English')
 
+    config = get_config()
+    diarize = request_data.get('diarize', True)
+    num_speakers = request_data.get('num_speakers')
+    if num_speakers is not None and not 1 <= num_speakers <= 4:
+        raise ValueError('num_speakers must be between 1 and 4')
 
-    # Pre-load models for faster inference (cached within subprocess)
-    asr_models = {}
-    diarizer_instances = {}
-
-    try:
-        # Import here to avoid main process contamination
-        import nemo.collections.asr as nemo_asr
-        from pydub import AudioSegment
-        import torchaudio
-        from hybrid_diarization import HybridDiarization
-
-        # Parse request
-        audio_path = request_data['audio_path']
-        num_speakers = request_data.get('num_speakers')
-        min_speakers = request_data.get('min_speakers')
-        max_speakers = request_data.get('max_speakers')
-        diarization_model = request_data.get('diarization_model')
-        asr_model = request_data.get('asr_model')
-        language = request_data.get('language')
-        diarize = request_data.get('diarize', True)
-        vad = request_data.get('vad')
-        batch_size = request_data.get('batch_size')
-        output_format = request_data.get('output_format')
-        hf_token = request_data.get('hf_token')
-        print(f"DEBUG: hf_token from request_data: {hf_token}")
-        print(f"DEBUG: HF_TOKEN env var: {os.getenv('HF_TOKEN')}")
-
-        # Load configuration
-        config = get_config()
-
-        # Create HIPAA-compliant TempFileTracker configuration for secure cleanup
-        # This ensures all temporary files are properly tracked and securely deleted
-        tracker_config = TempFileTrackerConfig(
-            max_retry_attempts=config.processing.max_retry_attempts,
-            enable_audit_logging=config.processing.enable_audit_logging,
-            cleanup_timeout_seconds=config.processing.cleanup_timeout_seconds
+    tracker_config = TempFileTrackerConfig(
+        max_retry_attempts=config.processing.max_retry_attempts,
+        enable_audit_logging=config.processing.enable_audit_logging,
+        cleanup_timeout_seconds=config.processing.cleanup_timeout_seconds,
+    )
+    with TempFileTracker(tracker_config) as tracker:
+        converted_path = tracker.create_temp_file('.wav', purpose='audio_conversion')
+        conversion = subprocess.run(
+            ['ffmpeg', '-nostdin', '-v', 'error', '-y', '-i', request_data['audio_path'],
+             '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', converted_path],
+            capture_output=True,
         )
+        if conversion.returncode:
+            raise RuntimeError('Could not decode audio to 16 kHz mono WAV')
 
-        # Use TempFileTracker context manager for automatic HIPAA-compliant cleanup
-        # All temporary files created within this block will be securely deleted on exit
-        with TempFileTracker(tracker_config) as tracker:
-            # Set defaults from config
-            if diarization_model is None:
-                if config.diarization.backend == "hybrid":
-                    diarization_model = config.diarization.pyannote_model
-                else:
-                    diarization_model = config.diarization.nvidia_model
-            asr_model = asr_model or config.asr.asr_model_name
-            language = language or config.asr.language
-            vad = vad if vad is not None else config.asr.use_vad
-            batch_size = batch_size or config.asr.batch_size
-            output_format = output_format or config.processing.output_format
+        if diarize:
+            from hybrid_diarization import HybridDiarization
 
-            # Validate num_speakers parameter
-            if num_speakers is not None:
-                if not (1 <= num_speakers <= 4):
-                    raise ValueError("num_speakers must be between 1 and 4 (Sortformer model limit)")
-                logger.info("Expected number of speakers: %d", num_speakers)
+            diarizer = HybridDiarization(
+                pyannote_model=config.diarization.pyannote_model,
+                hf_token=request_data.get('hf_token') or config.diarization.hf_token or os.getenv('HF_TOKEN'),
+                device=config.asr.device,
+                min_speakers=request_data.get('min_speakers'),
+                max_speakers=request_data.get('max_speakers'),
+            )
+            speaker_segments = diarizer.diarize_audio(converted_path)['segments']
+            if num_speakers and len({s['speaker'] for s in speaker_segments}) > num_speakers:
+                speaker_segments = diarizer.filter_speakers(speaker_segments, num_speakers)
+            del diarizer
 
-            # Convert audio to 16kHz mono wav
-            audio = AudioSegment.from_file(audio_path)
-            audio = audio.set_channels(1).set_frame_rate(config.processing.sample_rate)
-            converted_path = tracker.create_temp_file("_converted.wav", purpose="audio_conversion")
-            audio.export(converted_path, format=config.processing.audio_format)
-
-            results = []
-
-            # Load audio for segmentation
-            waveform, sample_rate = torchaudio.load(converted_path)
-
-            # Initialize ASR components
-            asr_component = None
-            asr_model_instance = None
-
-            # Preload ASR models for faster inference
-            if asr_model not in asr_models:
-                if asr_model == "nvidia/parakeet-ctc-1.1b":
-                    asr_models[asr_model] = nemo_asr.models.EncDecCTCModelBPE.from_pretrained(asr_model)
-                elif asr_model == "nvidia/parakeet-tdt-1.1b":
-                    # Try the faster TDT model variant
-                    try:
-                        asr_models[asr_model] = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(asr_model)
-                    except Exception as e:
-                        logger.warning("Failed to load %s, falling back to tdt_ctc: %s", asr_model, str(e))
-                        asr_model = "nvidia/parakeet-tdt_ctc-1.1b"
-                        asr_models[asr_model] = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(asr_model)
-                elif asr_model == "nvidia/parakeet-tdt_ctc-1.1b":
-                    asr_models[asr_model] = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(asr_model)
-                else:
-                    raise ValueError(f"Unsupported ASR model: {asr_model}")
-
-            # VAD functionality commented out - not required for current use case
-            # if vad:
-            #     # Use NvidiaASR with VAD support
-            #     asr_component = NvidiaASR(
-            #         asr_model_name=config.asr.asr_model_name,
-            #         device=config.asr.device,
-            #         use_vad=config.asr.use_vad,
-            #         vad_threshold=config.asr.vad_threshold,
-            #         min_segment_duration=config.asr.min_segment_duration,
-            #         batch_size=batch_size,
-            #         enable_batch_processing=config.asr.enable_batch_processing
-            #     )
-            # else:
-            # Use preloaded NeMo ASR model (VAD disabled for simplicity)
-            asr_model_instance = asr_models[asr_model]
-
-            if diarize:
-                logger.info("Diarization enabled - loading Pyannote diarization model and performing speaker segmentation")
-                # Use Pyannote-based hybrid diarization (only backend supported)
-                diarizer_key = f"hybrid_{min_speakers}_{max_speakers}"
-                if diarizer_key not in diarizer_instances:
-                    diarizer_instances[diarizer_key] = HybridDiarization(
-                        pyannote_model=config.diarization.pyannote_model,
-                        hf_token=hf_token or config.diarization.hf_token or os.getenv("HF_TOKEN"),
-                        device=config.asr.device,
-                        min_speakers=min_speakers,
-                        max_speakers=max_speakers
-                    )
-                diarizer = diarizer_instances[diarizer_key]
-                diarization_result = diarizer.diarize_audio(converted_path)
-                speaker_segments = diarization_result['segments']
-
-                # Apply speaker filtering if needed
-                if num_speakers and len(set(s['speaker'] for s in speaker_segments)) > num_speakers:
-                    speaker_segments = diarizer.filter_speakers(speaker_segments, num_speakers)
-
-                logger.debug("Parsed speaker segments type: %s", type(speaker_segments))
-                logger.debug("Parsed speaker segments length: %s", len(speaker_segments) if hasattr(speaker_segments, '__len__') else 'N/A')
-                if speaker_segments:
-                    logger.debug("First parsed segment: %s", speaker_segments[0])
-
+            paths, metadata = [], []
+            with sf.SoundFile(converted_path) as recording:
+                rate = recording.samplerate
                 for segment in speaker_segments:
-                    start_time = segment['start']
-                    end_time = segment['end']
-                    speaker = segment['speaker']
-                    segment_duration = end_time - start_time
-
-                    # Skip segments that are too short for ASR
-                    min_segment_duration = 0.2
-                    if segment_duration < min_segment_duration:
-                        logger.debug("Skipping %s segment (%.3fs) - too short for ASR", speaker, segment_duration)
+                    start = max(0, min(recording.frames, int(segment['start'] * rate)))
+                    end = max(start, min(recording.frames, int(segment['end'] * rate)))
+                    if end - start < rate * 0.2:
                         continue
+                    recording.seek(start)
+                    clip = tracker.create_temp_file('.wav', purpose='asr_segment')
+                    sf.write(clip, recording.read(end - start, dtype='int16'), rate, subtype='PCM_16')
+                    paths.append(clip)
+                    metadata.append({'start': start / rate, 'end': end / rate, 'speaker': segment['speaker']})
+        else:
+            paths = [converted_path]
+            metadata = [{'start': 0.0, 'end': sf.info(converted_path).duration, 'speaker': 'SPEAKER_00'}]
 
-                    start_sample = int(start_time * sample_rate)
-                    end_sample = int(end_time * sample_rate)
-                    segment_waveform = waveform[:, start_sample:end_sample]
+        if not paths:
+            return {'segments': []}
+        logger.info('Transcribing %d input(s) with %s', len(paths), OMI_MODEL)
+        transcripts = transcribe_nemo(paths, repo_id=OMI_MODEL)
+        segments = [dict(segment, text=text) for segment, text in zip(metadata, transcripts, strict=True) if text]
+        return {'segments': merge_consecutive_speaker_segments(segments) if diarize else segments}
 
-                    # Transcribe segment
-                    try:
-                        # VAD functionality commented out - using direct NeMo ASR
-                        # if vad and asr_component is not None:
-                        #     transcription_result = asr_component.transcribe_segment(segment_waveform, sample_rate)
-                        #     if transcription_result and transcription_result.strip():
-                        #         results.append({
-                        #             'text': transcription_result.strip(),
-                        #             'start': start_time,
-                        #             'end': end_time,
-                        #             'speaker': speaker
-                        #         })
-                        # elif asr_model_instance is not None:
-                        if asr_model_instance is not None:
-                            # Save temporary segment for NeMo
-                            temp_file_path = tracker.create_temp_file(".wav", purpose="asr_segment")
-                            torchaudio.save(temp_file_path, segment_waveform, sample_rate)
-                            transcription_output = asr_model_instance.transcribe([temp_file_path])
-                            transcription = transcription_output[0].text.strip()
-                            if transcription and transcription.strip():
-                                results.append({
-                                    'text': transcription.strip(),
-                                    'start': start_time,
-                                    'end': end_time,
-                                    'speaker': speaker
-                                })
-                    except Exception as e:
-                        logger.error("Error transcribing segment: %s", str(e))
-            else:
-                # Just ASR without diarization - skip ALL diarization processing including model loading
-                logger.info("Diarization disabled (diarize=false) - performing ASR only without speaker segmentation or diarization models")
 
-                if asr_model_instance is not None:
-                    try:
-                        # Try to get timestamps, but handle cases where they're not available
-                        transcription_output = asr_model_instance.transcribe([converted_path], timestamps=True)
+def main():
+    # NeMo, pyannote and native libraries can write to stdout; reserve it for JSON.
+    with os.fdopen(os.dup(1), 'w') as result_stream, open(os.devnull, 'w') as devnull:
+        os.dup2(devnull.fileno(), 1)
+        try:
+            result = run_inference(json.load(sys.stdin))
+        except Exception as exc:
+            logger.exception('Transcription worker failed')
+            result = {'error': str(exc)}
+        json.dump(result, result_stream)
 
-                        # Check if timestamps are available and properly structured
-                        if (hasattr(transcription_output[0], 'timestamp') and
-                            transcription_output[0].timestamp and
-                            isinstance(transcription_output[0].timestamp, dict) and
-                            'segment' in transcription_output[0].timestamp and
-                            transcription_output[0].timestamp['segment']):
 
-                            # Use timestamp segments if available
-                            for stamp in transcription_output[0].timestamp['segment']:
-                                if 'segment' in stamp and 'start' in stamp and 'end' in stamp:
-                                    results.append({
-                                        'text': stamp['segment'].strip(),
-                                        'start': float(stamp['start']),
-                                        'end': float(stamp['end']),
-                                        'speaker': 'SPEAKER_00'
-                                    })
-                        else:
-                            # Fallback: single segment with full audio duration
-                            logger.info("Timestamps not available, using single segment for entire audio")
-                            duration = audio.duration_seconds
-                            full_text = transcription_output[0].text.strip() if hasattr(transcription_output[0], 'text') else ""
-                            if full_text:
-                                results.append({
-                                    'text': full_text,
-                                    'start': 0.0,
-                                    'end': duration,
-                                    'speaker': 'SPEAKER_00'
-                                })
-
-                    except Exception as e:
-                        logger.warning("Error getting timestamps from ASR model, falling back to basic transcription: %s", str(e))
-                        try:
-                            # Last resort: basic transcription without timestamps
-                            basic_output = asr_model_instance.transcribe([converted_path])
-                            duration = audio.duration_seconds
-                            basic_text = basic_output[0].text.strip() if hasattr(basic_output[0], 'text') else ""
-                            if basic_text:
-                                results.append({
-                                    'text': basic_text,
-                                    'start': 0.0,
-                                    'end': duration,
-                                    'speaker': 'SPEAKER_00'
-                                })
-                        except Exception as e2:
-                            logger.error("Failed to perform basic ASR transcription: %s", str(e2))
-                            raise Exception(f"ASR transcription failed: {str(e2)}")
-
-            # Merge consecutive segments from the same speaker
-            if diarize:
-                results = merge_consecutive_speaker_segments(results)
-
-            # Sort results by timestamp
-            results_sorted = sorted(results, key=lambda x: x['start'])
-
-            # Clean up components (don't delete cached models as they're reused)
-            if asr_component is not None:
-                asr_component.cleanup()
-                del asr_component
-
-            # Note: Don't delete cached diarizer instances as they're reused across calls
-            # They will be cleaned up when the subprocess exits
-
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-
-            return {"segments": results_sorted}
-
-    except Exception as e:
-        import traceback
-        error_msg = f"Worker error: {str(e)}\n{traceback.format_exc()}"
-        logger.error("Worker error: %s", error_msg)
-        return {"error": str(e)}
-
-if __name__ == "__main__":
-    try:
-        # Read request data from stdin
-        # Read from original stdin (fd 0) to be safe, though sys.stdin should work
-        input_data = sys.stdin.read()
-        if not input_data:
-            raise ValueError("No input data received")
-            
-        request_data = json.loads(input_data)
-        result = run_inference(request_data)
-    except Exception as e:
-        import traceback
-        logger.error(f"Top-level worker error: {e}\n{traceback.format_exc()}")
-        result = {"error": str(e)}
-
-    # Restore stdout for JSON output
-    sys.stdout.flush()
-    os.dup2(original_stdout_fd, 1)
-    os.close(original_stdout_fd)
-    os.close(devnull_fd)
-
-    # Write ONLY the JSON result to stdout (no other output)
-    print(json.dumps(result))
+if __name__ == '__main__':
+    main()

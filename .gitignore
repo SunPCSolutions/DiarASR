@@ -113,6 +113,7 @@ dmypy.json
 .DS_Store
 
 # Project specific
+/text.md
 cache/
 logs/
 tmp/

@@ -9,7 +9,7 @@ services:
       - cache:/home/app/.cache/huggingface:rw  # Writable cache directory (named volume)
       - tmp:/app/tmp:rw  # Writable temp directory (named volume)
     networks:
-      - docknet
+      - ainet
     deploy:
       resources:
         limits:
@@ -44,5 +44,5 @@ volumes:
   tmp:    # Named volume for temporary files
 
 networks:
-  docknet:
+  ainet:
     external: true  # External network for inter-container communication

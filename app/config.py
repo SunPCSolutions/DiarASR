@@ -172,7 +172,6 @@ class ASRConfig:
     min_segment_duration: float = 0.05  # Minimum duration for speech segments (seconds)
 
     # Model parameters
-    asr_model_name: str = "nvidia/parakeet-tdt-1.1b"  # ASR model to use (faster variant)
     device: str = "auto"  # Device: "auto", "cpu", "cuda"
 
     # Batch processing
@@ -378,7 +377,6 @@ DEFAULT_CONFIG = GlobalConfig(
         use_vad=True,
         vad_threshold=0.5,
         min_segment_duration=0.05,
-        asr_model_name="nvidia/parakeet-tdt-1.1b",
         device="auto",
         enable_batch_processing=True
     ),

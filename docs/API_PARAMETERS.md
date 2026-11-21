@@ -1,6 +1,6 @@
 # SECURE MODULAR ASR Diarization Pipeline API Parameters Documentation
 
-This document describes all configurable parameters for the **SECURE MODULAR ASR Diarization Pipeline** with enterprise-grade security, HIPAA compliance, and high-quality transcription (DER <7.8%, WER <2%).
+This document describes the DiarASR API for local English transcription and optional speaker diarization.
 
 ## Overview
 
@@ -47,12 +47,7 @@ The `GlobalConfig` class in `config.py` provides centralized configuration for t
 
 | Parameter | Type | Default | Description | Valid Range |
 |-----------|------|---------|-------------|-------------|
-| `batch_size` | int | `32` | Batch size for processing segments | 1-64 |
-| `compute_type` | str | `"fp32"` | Compute precision for ASR | `"fp16"`, `"fp32"`, `"int8"` |
-| `language` | str | `"en"` | Language code for ASR model | Language code |
-| `use_vad` | bool | `True` | Enable Voice Activity Detection | `true`/`false` |
-| `vad_threshold` | float | `0.5` | VAD speech detection threshold | 0.0-1.0 |
-| `min_segment_duration` | float | `0.05` | Minimum duration for speech segments (seconds) | 0.01-1.0 |
+Omi uses BF16 CUDA inference and manages its own batch sizes.
 
 #### Security Settings
 
@@ -116,9 +111,8 @@ Main transcription and diarization endpoint with comprehensive security validati
 | Parameter | Type | Default | Description | Required |
 |-----------|------|---------|-------------|----------|
 | `audio_file` | file | - | Audio file to process (MP3, WAV, FLAC, M4A, AAC) | Yes |
-| `language` | str | `"en"` | Language code for ASR | No |
+| `language` | str | `"en"` | English only (`en` or `english`) | No |
 | `diarize` | bool | `true` | Enable speaker diarization | No |
-| `vad` | bool | `true` | Enable Voice Activity Detection | No |
 | `min_speakers` | int | - | Minimum number of speakers for diarization | No |
 | `max_speakers` | int | - | Maximum number of speakers for diarization | No |
 | `hf_token` | str | Environment | HuggingFace token for Pyannote diarization | No* |
@@ -129,7 +123,6 @@ Main transcription and diarization endpoint with comprehensive security validati
 
 | Parameter | Type | Default | Description | Valid Range |
 |-----------|------|---------|-------------|-------------|
-| `batch_size` | int | `32` | Batch size for ASR processing | 1-64 |
 | `output_format` | str | `"json"` | Output format | `"json"`, `"txt"`, `"both"` |
 | `unload_models_after` | bool | `false` | Unload models after processing to free VRAM | `true`/`false` |
 
@@ -162,64 +155,18 @@ The system implements **intelligent segmentation** that respects diarization bou
 - ✅ **n8n Ready**: Optimal segment boundaries for workflow processing
 - ✅ **Reduced Fragmentation**: 31% fewer segments while maintaining quality
 
-## VAD (Voice Activity Detection) Parameters
+## ASR Backend
 
-The new VAD functionality provides advanced speech detection capabilities:
-
-### Key VAD Parameters
-
-| Parameter | API Name | Config Name | Type | Default | Description |
-|-----------|----------|-------------|------|---------|-------------|
-| VAD Enable | `vad` | `asr_use_vad` | bool | `true` | Enable/disable VAD processing |
-| VAD Threshold | - | `asr_vad_threshold` | float | `0.5` | Speech detection sensitivity (0.0-1.0) |
-| Min Segment Duration | - | `asr_min_segment_duration` | float | `0.05` | Minimum speech segment length (seconds) |
-
-### VAD Threshold Guidelines
-
-- **0.3-0.4**: More sensitive (detects softer speech, may include noise)
-- **0.5**: Balanced (recommended default)
-- **0.6-0.7**: Less sensitive (detects only clear speech, filters noise)
-
-### VAD Integration
-
-**Note**: VAD is now **disabled by default** (`vad=false`) for optimal performance with the hybrid system.
-
-When `vad=false` (recommended):
-- Direct processing with Parakeet TDT for maximum accuracy
-- No artificial speech filtering that might remove valid audio
-- Faster processing with in-memory operations
-- Better integration with diarization-controlled segmentation
-
-When `vad=true` (legacy):
-- Uses NVIDIA ASR with VAD processing
-- May conflict with TDT model performance
-- Slower processing due to additional filtering
-- Not recommended for production use
+Omi Med STT v1 is the only ASR backend and supports English only. There is no model selector or fallback. The Omi runtime controls ASR batching and does not use the API's legacy `batch_size` or `vad` inputs. With diarization enabled, timestamps are pyannote speaker-turn boundaries. Without diarization, the transcript is returned in one segment spanning the recording.
 
 ## Configuration Examples
 
 ### Python API Usage
 
 ```python
-from app.config import GlobalConfig, create_custom_config
+from app import process_audio  # Run with the app directory on PYTHONPATH
 
-# Custom configuration with VAD tuning
-config = create_custom_config(
-    use_vad=True,
-    vad_threshold=0.4,  # More sensitive
-    min_segment_duration=0.1,  # Longer minimum segments
-    batch_size=32  # Larger batch for faster processing
-)
-
-# Use the modular components directly
-from app.hybrid_diarization import HybridDiarization
-from app.nvidia_asr import NvidiaASR
-
-diarizer = HybridDiarization(config.diarization)
-asr = NvidiaASR(config.asr)
-
-# Process audio with custom configuration
-results = diarizer.process_audio('audio.mp3', asr_model=asr)
+results = process_audio('audio.mp3', diarize=True)
 ```
 
 ### REST API Usage
@@ -230,7 +177,6 @@ curl -H "X-API-Key: your-api-key" \
   -X POST "https://your-api-endpoint/transcribe_diarize/" \
   -F "audio_file=@audio.mp3" \
   -F "diarize=true" \
-  -F "vad=true" \
   -F "min_speakers=2" \
   -F "max_speakers=4" \
   -F "hf_token=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
@@ -240,7 +186,6 @@ curl -H "X-API-Key: your-api-key" \
   -X POST "https://your-api-endpoint/transcribe_diarize/" \
   -F "audio_file=@audio.mp3" \
   -F "diarize=true" \
-  -F "vad=true" \
   -F "min_speakers=2" \
   -F "max_speakers=4" \
   -F "hf_token=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
@@ -279,10 +224,6 @@ curl -H "X-API-Key: your-api-key" \
           "value": "=true"
         },
         {
-          "name": "vad",
-          "value": "=true"
-        },
-        {
           "name": "min_speakers",
           "value": "={{ $json.min_speakers || 2 }}"
         },
@@ -299,10 +240,6 @@ curl -H "X-API-Key: your-api-key" \
           "value": "={{ $json.output_format || 'json' }}"
         },
         {
-          "name": "batch_size",
-          "value": "={{ $json.batch_size || 32 }}"
-        },
-        {
           "name": "unload_models_after",
           "value": "=true"
         }
@@ -314,24 +251,8 @@ curl -H "X-API-Key: your-api-key" \
 
 ### n8n Workflow Benefits
 
-- **Automatic Backend Selection**: Uses hybrid system by default for best quality
-- **No Model Parameters Needed**: System auto-selects optimal models
-- **Enterprise Quality**: DER <7.8%, perfect speaker attribution
+- **No Model Parameters Needed**: Omi Med STT v1 is always used for ASR
 - **Error Handling**: Built-in retry logic and error recovery
-
-### JSON Configuration Override
-
-```python
-from app.config import create_custom_config
-
-# Override specific parameters
-custom_config = create_custom_config(
-    use_vad=True,
-    vad_threshold=0.6,  # Less sensitive
-    batch_size=8,  # Smaller batch
-    device="cuda"  # Force GPU
-)
-```
 
 ## Output Format
 
@@ -391,34 +312,7 @@ All security-related events are logged with detailed audit trails including:
 
 ## Performance Considerations
 
-### Hybrid System Performance
-
-| Metric | Community-1 System | Legacy NVIDIA | Improvement |
-|--------|-------------------|---------------|-------------|
-| **DER (Diarization Error Rate)** | <7.8% | ~70% | **89% better** |
-| **WER (Word Error Rate)** | <2% | ~5% | **60% better** |
-| **Speaker Attribution** | 100% | Poor | **Perfect** |
-| **Processing Speed** | 65s (7.5% faster) | 80s | **7.5% faster** |
-| **Memory Usage** | 8GB GPU | 4GB GPU | Higher but worth quality |
-| **Segmentation** | 52 coherent segments | 76+ fragmented | **31% more readable** |
-
-### Parameter Tuning for Speed vs Accuracy
-
-| Use Case | Recommended Settings | Expected Quality |
-|----------|---------------------|------------------|
-| **Enterprise Production** | `vad=false`, `min_speakers=2`, `max_speakers=4`, `batch_size=32` | **DER <7.8%, WER <2%** |
-| **Precise Speaker Control** | `min_speakers=2`, `max_speakers=2`, `vad=false` | **Exact speaker count** |
-| **High Accuracy** | `vad=false`, `batch_size=16`, Community-1 diarization | **DER <7.8%, WER <2%** |
-| **Workflow Automation** | `vad=false`, `save_to_file=result.json` | **n8n ready output** |
-| **Low Resource** | `device="cpu"`, `batch_size=4`, `vad=false` | Variable quality |
-
-### Memory Usage
-
-- **Hybrid GPU Memory**: ~6-8GB for Pyannote + Parakeet TDT
-- **NVIDIA GPU Memory**: ~4GB for Sortformer + Parakeet CTC
-- **CPU Memory**: ~1-2GB for processing
-- **Batch Size**: Higher values use more memory but process faster
-- **Model Unloading**: `unload_models_after=true` frees VRAM between requests
+GPU memory and elapsed time depend on the recording and whether pyannote is enabled. Models are unloaded when the request's worker exits.
 
 
 ## Security Best Practices

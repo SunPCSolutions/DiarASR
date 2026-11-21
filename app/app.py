@@ -4,18 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 import os
 import tempfile
-import torch
-import nemo.collections.asr as nemo_asr
-from pydub import AudioSegment
-import torchaudio
-from transformers import pipeline
 from config import get_config, load_api_keys
 from logging_config import get_app_logger, get_security_logger
-import multiprocessing
 import json
 import subprocess
 import sys
-import mimetypes
 import time
 import re
 from collections import defaultdict
@@ -318,13 +311,10 @@ def process_audio(
     min_speakers: Optional[int] = None,
     max_speakers: Optional[int] = None,
     diarization_model: Optional[str] = None,
-    asr_model: Optional[str] = None,
     language: Optional[str] = None,
     diarize: bool = True,
-    vad: Optional[bool] = None,
     unload_models_after: bool = False,
     segment_resolution: Optional[str] = None,
-    batch_size: Optional[int] = None,
     output_format: Optional[str] = None,
     hf_token: Optional[str] = None
 ):
@@ -337,26 +327,20 @@ def process_audio(
         'min_speakers': min_speakers,
         'max_speakers': max_speakers,
         'diarization_model': diarization_model,
-        'asr_model': asr_model,
         'language': language,
         'diarize': diarize,
-        'vad': vad,
         'segment_resolution': segment_resolution,
-        'batch_size': batch_size,
         'output_format': output_format,
         'hf_token': hf_token or os.getenv('HF_TOKEN', '')  # Pass HF_TOKEN to worker
     }
 
     try:
-        # Debug: Print request_data being sent to worker
-        print(f"DEBUG: Sending request_data to worker: {request_data}")
-
         # Run inference in subprocess
         env = os.environ.copy()
         env['HF_TOKEN'] = os.getenv('HF_TOKEN', '')
 
         result = subprocess.run(
-            [sys.executable, 'worker.py'],
+            [sys.executable, os.path.join(os.path.dirname(__file__), 'worker.py')],
             input=json.dumps(request_data),
             capture_output=True,
             text=True,
@@ -406,7 +390,6 @@ async def transcribe_diarize(
     audio_file: UploadFile = File(...),
     language: Optional[str] = Form(None),
     diarize: bool = Form(True),
-    vad: Optional[str] = Form(None),
     num_speakers: Optional[int] = Form(None),
     min_speakers: Optional[int] = Form(None),
     max_speakers: Optional[int] = Form(None),
@@ -414,9 +397,7 @@ async def transcribe_diarize(
     hf_token: Optional[str] = Form(None),
     output_format: Optional[str] = Form(None),
     segment_resolution: Optional[str] = Form(None),
-    batch_size: Optional[int] = Form(None),
     diarization_model: Optional[str] = Form(None),
-    asr_model: Optional[str] = Form(None),
     save_to_file: Optional[str] = Form(None)
   ):
     # Sanitize and validate filename
@@ -443,14 +424,14 @@ async def transcribe_diarize(
     # Sanitize string parameters
     if language:
         language = sanitize_parameter(language, "language")
+        if language.lower() not in {'en', 'english'}:
+            raise HTTPException(status_code=400, detail="Omi Med STT only supports English")
     if output_format:
         output_format = sanitize_parameter(output_format, "output_format")
     if segment_resolution:
         segment_resolution = sanitize_parameter(segment_resolution, "segment_resolution")
     if diarization_model:
         diarization_model = sanitize_parameter(diarization_model, "diarization_model")
-    if asr_model:
-        asr_model = sanitize_parameter(asr_model, "asr_model")
     if save_to_file:
         save_to_file = sanitize_parameter(save_to_file, "save_to_file")
 
@@ -516,14 +497,6 @@ async def transcribe_diarize(
     elif isinstance(unload_models_after, bool):
         unload_models_bool = unload_models_after
 
-    # Convert vad parameter
-    vad_bool = None
-    if isinstance(vad, str):
-        clean_vad = vad.lstrip('=')
-        vad_bool = clean_vad.lower() in ('true', '1', 'yes', 'on')
-    elif isinstance(vad, bool):
-        vad_bool = vad
-
     # Save uploaded file temporarily
     suffix = os.path.splitext(sanitized_filename)[1] if sanitized_filename else ".wav"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
@@ -537,13 +510,10 @@ async def transcribe_diarize(
             min_speakers=min_speakers,
             max_speakers=max_speakers,
             diarization_model=diarization_model,
-            asr_model=asr_model,
             language=language,
             diarize=diarize,
-            vad=vad_bool,
             unload_models_after=unload_models_bool,  # This is now the converted boolean
             segment_resolution=segment_resolution,
-            batch_size=batch_size,
             output_format=output_format,
             hf_token=hf_token
         )

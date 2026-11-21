@@ -3,7 +3,7 @@ uvicorn[standard]
 torch --index-url https://download.pytorch.org/whl/cu128
 torchaudio --index-url https://download.pytorch.org/whl/cu128
 torchvision --index-url https://download.pytorch.org/whl/cu128
-nemo-toolkit[asr]
+omi-med-stt[nemo]==0.2.1
 pydub
 transformers
 python-multipart
