@@ -14,10 +14,10 @@ Enterprise-grade secure ASR diarization pipeline combining automatic speech reco
 
 ## Requirements
 
-- **GPU**: NVIDIA GPU with CUDA 13.0+ (8GB+ VRAM recommended)
+- **GPU**: BF16-capable NVIDIA GPU (Ampere or newer) with a CUDA-compatible driver
 - **OS**: Linux (Ubuntu 24.04+, CentOS 8+)
 - **Python**: 3.12+
-- **Models**: Access required for `nvidia/parakeet-tdt-1.1b` and `pyannote/speaker-diarization-community-1`
+- **Models**: Local English ASR uses `omi-health/omi-med-stt-v1`. Optional speaker diarization uses `nvidia/Nemotron-3-Diarization`.
 
 ## Installation
 
@@ -83,18 +83,14 @@ See [`docs/API_PARAMETERS.md`](docs/API_PARAMETERS.md) for complete API document
 
 ## Model Access
 
-**Required HuggingFace Access:**
-- [nvidia/parakeet-tdt-1.1b](https://huggingface.co/nvidia/parakeet-tdt-1.1b) - ASR model
-- [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) - Diarization model
+- [Omi Med STT v1](https://huggingface.co/omi-health/omi-med-stt-v1) by Omi Health is the only ASR model. Its CC BY 4.0 weights are derived from NVIDIA Parakeet TDT 0.6B v2. Inference runs locally with the pinned Omi CUDA runtime, not Omi's hosted API.
+- [NVIDIA Nemotron 3 Diarization](https://huggingface.co/nvidia/Nemotron-3-Diarization) supplies anonymous speaker labels and turn timestamps when `diarize=true`. It detects up to eight speakers. For `diarize=false`, the transcript is returned as one full-duration segment; Omi's runtime does not produce word timestamps.
 
-Set `HF_TOKEN` environment variable with your HuggingFace token.
+The Docker image isolates Nemotron's newer NeMo runtime from Omi's pinned runtime. Both checkpoints are cached locally after the first download; `HF_TOKEN` is optional. Review transcripts before clinical use.
 
 ## Performance
 
-- **ASR Accuracy**: ~1-5% WER (Parakeet TDT-1.1B)
-- **Diarization Quality**: ~8-20% DER (Pyannote Community-1)
-- **Processing Speed**: ~12x real-time with GPU
-- **Memory Usage**: <8GB VRAM
+Accuracy, processing speed, and memory use depend on your recordings and GPU. The Omi model card reports results for its own evaluation set, not for the complete DiarASR pipeline.
 
 ## Security
 
@@ -116,8 +112,8 @@ MIT License - see LICENSE file for details.
 ## Acknowledgments
 
 Our greatest appreciation to the creators of:
-- **Pyannote.audio** (Hervé Bredin et al.) for speaker diarization
-- **NVIDIA Parakeet TDT** (NVIDIA NeMo team) for ASR
+- **NVIDIA** for Nemotron 3 Diarization (OpenMDW 1.1)
+- **Omi Health** for Omi Med STT v1 and **NVIDIA NeMo** for the underlying ASR tooling
 - **FastAPI** (Sebastián Ramírez) for the web framework
 - **PyTorch** (Facebook AI Research) for deep learning
 
